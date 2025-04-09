@@ -1,0 +1,360 @@
+```{r setup, include=FALSE}
+library(data.table)
+library(xgboost)
+library(parallel)
+library(doParallel)
+library(foreach)
+library(dplyr)
+library(fastDummies)
+# Import data
+
+lep <- read.csv("LEP9.csv")
+
+lep <-lep %>% 
+  select(temp_mean, temp_variance, YEAR, humi_mean, humi_variance,
+         rain_mean, rain_variance, ndwi_mean, ndwi_variance,
+         ndvi_mean, ndvi_variance, slope_mean, slope_variance,
+         REGION, Frequently_Flooded_Area, Occasionally_Flooded_Area,
+         Regularly_Flooded_Area, caseper100k, label, moderate_to_good_drainage,
+         somewhat_poor_drainage, Unknown_drainage, poor_drainage, very_poor_drainage,
+         poor_to_somewhat_poor_drainage, good_drainage, moderate_drainage,
+         RegAgriHH, AvgHHExp, Avg_incomeHH, Forest_Area.rai., PROV, AMP, MONTH, Population)
+#RegAgriHH
+#Forest_Area.rai.
+
+lep$RegAgriHH_PROV_ratio <- lep$RegAgriHH / lep$Population
+
+lep <- lep %>% 
+  select(-RegAgriHH,Population)
+lep$label <- as.factor(lep$label)
+lep$REGION <- as.factor(lep$REGION)
+
+lep <- dummy_cols(lep, select_columns = "REGION", remove_first_dummy = TRUE)
+lep <- lep %>%
+  select(-REGION)
+summary(lep)
+lep <- lep[!(lep$YEAR %in% c(2020, 2021, 2022)), ]
+unique(lep$YEAR)
+
+hist(lep$caseper100k, breaks = 20)
+
+zero_case_districts <- lep %>%
+  group_by(AMP) %>%
+  summarise(total_caseper100k = sum(caseper100k, na.rm = TRUE)) %>%
+  filter(total_caseper100k == 0) %>%
+  pull(AMP)
+
+lep_zero_AMP <- lep %>% filter(AMP %in% zero_case_districts)  
+lep_non_zero_AMP <- lep %>% filter(!(AMP %in% zero_case_districts))
+
+lep <- lep_non_zero_AMP
+
+# Outer K-fold (split by YEAR)
+kfolds_outer <- split(lep, lep$YEAR)
+
+# Parameter grids for classification and regression
+param_grid_classification <- expand.grid(
+  eta = c(0.01),
+  max_depth = c(5, 6),
+  min_child_weight = c(7, 10),
+  subsample = c(0.6, 0.8),
+  colsample_bytree = c(0.4, 0.6)
+)
+
+param_grid_regression <- expand.grid(
+  eta = c(0.01),
+  max_depth = c(4, 5),
+  min_child_weight = c(5, 7),
+  subsample = c(0.8, 1.0),
+  colsample_bytree = c(0.4, 0.6)
+)
+
+
+num_cores <- detectCores() - 4
+cl <- makeCluster(num_cores)
+registerDoParallel(cl)
+#_______________________________________________________________________________
+h <- hist(lep$caseper100k, 
+          main = "Distribution of Leptospirosis Cases per 100k",
+          xlab = "Cases per 100k", 
+          col = "skyblue", 
+          border = "white")
+
+
+text(x = h$mids, y = h$counts, labels = h$counts, pos = 3, col = "blue")
+lep[lep$caseper100k != 0,]
+colnames(lep)
+```
+
+# find_best_params
+```{r func, echo=TRUE,massage=FALSE,warning=FALSE}
+find_best_params <- function(train_data, param_grid_class, param_grid_reg) {
+  #train_data <- rbindlist(kfolds_outer[-i])
+  inner_kfolds <- split(train_data, train_data$YEAR)
+  
+  best_params_class <- NULL
+  best_params_reg <- NULL
+  
+  total_iterations <- nrow(param_grid_class) * nrow(param_grid_reg)
+  current_iteration <- 0
+  
+  foreach(param_c_idx = 1:nrow(param_grid_class), .packages = c("foreach", "xgboost")) %do% {
+    #___________________________________________________________________________
+    foreach(param_r_idx = 1:nrow(param_grid_reg), .packages = c("foreach", "xgboost")) %do% {
+      # progression
+      #param_c_idx <- 1
+      #param_r_idx <- 1
+      current_iteration <- current_iteration + 1
+      progress <- (current_iteration / total_iterations) * 100
+      cat(sprintf("Progress: %.2f%% complete\n", progress))
+      
+      param_class <- param_grid_class[param_c_idx, ]
+      param_reg <- param_grid_reg[param_r_idx, ]
+      
+      perf_score_class <- 0
+      perf_score_reg <- 999
+      pc0_scores <- c()
+      rmse_scores <- c()
+      #_________________________________________________________________________
+      foreach(j = seq_along(inner_kfolds), .packages = "xgboost") %do% {
+        #j <- 1
+        # training set and validation set
+        
+        train_inner <- rbindlist(inner_kfolds[-j])
+        val_inner <- inner_kfolds[[j]]
+        
+        # train
+        train_x_class <- as.matrix(train_inner[, -c("label", "caseper100k",
+                                                     "AMP", "PROV", "YEAR")])
+        train_x_1 <- train_inner[train_inner$label != 0,]
+        train_x_reg <- as.matrix(train_x_1[, -c("label", "caseper100k",
+                                                   "AMP", "PROV", "YEAR")])
+        
+        train_y_class <- train_inner$label
+        train_y_class <- as.numeric(as.character(train_y_class))
+        train_y_reg <- train_x_1$caseper100k
+        
+        # validation
+        cols_to_remove <- c("label", "caseper100k", "AMP", "PROV", "YEAR")
+        val_inner <- as.data.frame(val_inner)
+        val_x_class <- val_inner[, !colnames(val_inner) %in% cols_to_remove]
+        val_x_class <- as.matrix(val_x_class)
+        val_y_class <- val_inner$label
+
+        # parameter scale class
+        param_class$scale_pos_weight <- nrow(val_inner[val_inner$label == 0, ]) / nrow(val_inner[val_inner$label == 1,])
+        
+        # Train Classification model
+        model_classification <- xgboost(
+          data = train_x_class,
+          label = as.numeric(train_y_class),
+          nround = 1500,
+          params = as.list(param_class),
+          objective = "binary:logistic",
+          eval_metric = "logloss",
+          nthread = num_cores,
+          early_stopping_rounds = 50,
+          verbose = 0
+        )
+        
+        # predict class on validation set
+        pred_classification <- predict(model_classification, val_x_class)
+        pred_classification <- ifelse(pred_classification > 0.5, 1, 0)
+        conf_matrix <- table(Predicted = pred_classification,
+                             Actual = val_y_class)
+  
+        TN <- ifelse("0" %in% rownames(conf_matrix) & "0" %in% colnames(conf_matrix),
+                     conf_matrix["0", "0"], 0) # True Negative
+        FP <- ifelse("1" %in% rownames(conf_matrix) & "0" %in% colnames(conf_matrix),
+                     conf_matrix["1", "0"], 0) # False Positive
+      
+        pc0 <- ifelse((TN + FP) > 0, TN / (TN + FP), 0) #precision 0
+        
+        pc0_scores <- c(pc0_scores, pc0)
+        
+        # Train Regression model
+        model_regression <- xgboost(
+          data = train_x_reg,
+          label = as.numeric(train_y_reg),
+          nround = 500,
+          params = as.list(param_reg),
+          objective = "reg:squarederror",
+          eval_metric = "rmse",
+          nthread = num_cores,
+          early_stopping_rounds = 50,
+          verbose = 0
+        )
+        # validation set for regression
+        val_reg <- subset(val_inner, pred_classification == "1")
+        length(pred_classification)
+
+        cols_to_remove <- intersect(colnames(val_reg),c("label", "caseper100k",
+                                                        "AMP", "PROV", "YEAR"))
+        val_x_reg <- as.matrix(val_reg[, !names(val_reg) %in% cols_to_remove])
+        
+        
+        val_y_reg <- val_reg$caseper100k
+        pred_regression <- predict(model_regression, val_x_reg)
+
+        rmse <- sqrt(mean((pred_regression - val_reg$caseper100k)^2))
+        
+        rmse_scores <- c(rmse_scores, rmse)
+
+      }
+      # Calculate mean performance scores
+      if (mean(pc0_scores) > perf_score_class) {
+        perf_score_class <- mean(pc0_scores)
+        best_params_class <- param_class
+      }
+      if (mean(rmse_scores) < perf_score_reg) {
+        perf_score_reg <- mean(rmse_scores)
+        best_params_reg <- param_reg
+      }
+  
+    }
+
+  }
+  
+  return(list(
+    classification = list(best_params = best_params_class, best_pc0 = perf_score_class),
+    regression = list(best_params = best_params_reg, best_rmse = perf_score_reg)
+  ))
+}
+```
+
+# best model
+```{r best, echo=TRUE,massage=FALSE,warning=FALSE}
+actual_pred_list <- list()
+conf_matrix_list <- list()
+result_list <- list()
+# outerloop 
+
+foreach(i = seq_along(kfolds_outer), .packages = c("foreach", "xgboost")) %do% {
+  #i <- 1
+  test_set <- kfolds_outer[[i]]
+  train_set <- data.table::rbindlist(kfolds_outer[-i])
+  Year_zero <- unique(test_set$YEAR)
+  cols_to_remove <- c("label", "caseper100k", "AMP", "PROV", "YEAR")
+  test_class <- as.matrix(test_set[, !colnames(test_set) %in% cols_to_remove])
+  
+  #best parameter
+  best_params <- find_best_params(train_set,
+                                  param_grid_classification,
+                                  param_grid_regression)
+  
+  
+  best_params$classification$best_params$scale_pos_weight <- nrow(test_set[test_set$label == 0, ]) / nrow(test_set[test_set$label == 1,])
+
+  # classification
+  final_model_classification <- xgboost(
+    data = as.matrix(train_set[, -c("label", "caseper100k",
+                                    "AMP", "PROV", "YEAR")]),
+    label = as.numeric(as.character(train_set$label)),
+    nrounds = 1000,
+    params = as.list(best_params$classification$best_params),
+    objective = "binary:logistic",
+    eval_metric = "logloss",
+    nthread = num_cores,
+    early_stopping_rounds = 50,
+    verbose = 1
+  )
+  
+  # predict on test set
+  pred_classification <- predict(final_model_classification, test_class)
+  # cut-off
+  pred_classification <- ifelse(pred_classification > 0.5, 1, 0)
+  class_0_data <- subset(test_set, pred_classification == "0")
+  # classification performance
+  conf_matrix <- table(Predicted = pred_classification,
+                       Actual = test_set$label)
+  conf_matrix_list[[length(conf_matrix_list) + 1]] <- conf_matrix
+  
+  TP <- ifelse("1" %in% rownames(conf_matrix) & "1" %in% colnames(conf_matrix),
+               conf_matrix["1", "1"], 0) # True positive
+  
+  TN <- ifelse("0" %in% rownames(conf_matrix) & "0" %in% colnames(conf_matrix),
+               conf_matrix["0", "0"], 0) # True Negative
+  FP <- ifelse("1" %in% rownames(conf_matrix) & "0" %in% colnames(conf_matrix),
+               conf_matrix["1", "0"], 0) # False Positive
+  FN <- ifelse("0" %in% rownames(conf_matrix) & "1" %in% colnames(conf_matrix),
+               conf_matrix["0", "1"], 0) # False Negative
+  rc <- ifelse((TP + FN) > 0, TP / (TP + FN), 0) #Recall                                    
+  pc <- ifelse((TP + FP) > 0, TP / (TP + FP), 0) #Precision
+  
+  pc0 <- ifelse((TN + FP) > 0, TN / (TN + FP), 0) #Precision 0
+  f1 <- 2 * (pc * rc) / (pc + rc)
+  #_____________________________________________________________________________
+  # training set (regression)
+  train_set_reg <- train_set[train_set$label != 0,]
+  train_reg <- as.matrix(train_set_reg[, -c("label", "caseper100k",
+                                        "AMP", "PROV", "YEAR")])
+  # test set (regression)
+  test_set_reg <- subset(test_set, pred_classification == "1")
+  test_reg <- as.matrix(test_set_reg[, !colnames(test_set_reg) %in% cols_to_remove])
+  
+  # regression model
+  final_model_regression <- xgboost(
+    data = train_reg,
+    label = train_set_reg$caseper100k,
+    nround = 500,
+    params = as.list(best_params$regression),
+    objective = "reg:squarederror",
+    eval_metric = "rmse",
+    nthread = num_cores,
+    early_stopping_rounds = 50,
+    verbose = 0
+  )
+  
+  # predict on test set
+  pred_regression <- predict(final_model_regression, test_reg)
+  
+
+  mae <- mean(abs(pred_regression - test_set_reg$caseper100k))
+  rmse <- sqrt(mean((test_set_reg$caseper100k - pred_regression)^2))
+  
+  # prediction from regression model
+  pred_reg <- test_set_reg %>% 
+    select(PROV, AMP, caseper100k, MONTH)
+  pred_reg$Pred <- pred_regression
+  
+  # prediction from classification model
+  pred_class <- class_0_data %>%
+    select(PROV, AMP, caseper100k, MONTH)
+  pred_class$Pred <-  0
+  
+  # AMP that have zero case since 2017 - 2019
+  lep_zero <- lep_zero_AMP[lep_zero_AMP$YEAR == Year_zero,]
+  amp_zero <- lep_zero %>% 
+    select(PROV, AMP, caseper100k, MONTH)
+  amp_zero$Pred <-  0
+  
+  # Full model
+  Actual_pred <-  rbind(pred_reg, pred_class, amp_zero)
+  
+  actual_pred_list[[length(actual_pred_list) +  1]] <- Actual_pred
+  # overall performance
+  mae_f <- mean(abs(Actual_pred$Pred - Actual_pred$caseper100k))
+  rmse_f <- sqrt(mean((Actual_pred$caseper100k - Actual_pred$Pred)^2))
+  
+  result <- data.frame(
+    mae_f = mae_f,
+    rmse_f = rmse_f,
+    mae = mae,
+    rmse = rmse,
+    f1 = f1,
+    pc0 = pc0,
+    rc = rc,
+    pc = pc,
+    eta_class = best_params$classification$best_params$eta,
+    max_depth_class = best_params$classification$best_params$max_depth,
+    min_child_weight_class = best_params$classification$best_params$min_child_weight,
+    colsample_bytree_class = best_params$classification$best_params$colsample_bytree,
+    scale_pos_weight = best_params$classification$best_params$scale_pos_weight,
+    eta_reg = best_params$regression$best_params$eta,
+    max_depth_reg = best_params$regression$best_params$max_depth,
+    min_child_weight_reg = best_params$regression$best_params$min_child_weight,
+    colsample_bytree_reg  =  best_params$regression$best_params$colsample_bytree
+  )
+  result_list[[length(result_list) + 1]] <- result
+}
+```
