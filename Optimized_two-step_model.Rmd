@@ -13,6 +13,7 @@ library(doParallel)
 library(foreach)
 library(dplyr)
 library(fastDummies)
+library(readxl)
 # Import data
 
 lep <- read.csv("LEP9.csv")
@@ -25,14 +26,19 @@ lep <-lep %>%
          Regularly_Flooded_Area, caseper100k, label, moderate_to_good_drainage,
          somewhat_poor_drainage, Unknown_drainage, poor_drainage, very_poor_drainage,
          poor_to_somewhat_poor_drainage, good_drainage, moderate_drainage,
-         RegAgriHH, AvgHHExp, Avg_incomeHH, Forest_Area.rai., PROV, AMP, MONTH, Population)
+         RegAgriHH, AvgHHExp, Avg_incomeHH, -Forest_Area.rai., PROV, AMP, MONTH, Population)
 #RegAgriHH
 #Forest_Area.rai.
+forest_dat <- read_xlsx("forest.xlsx")
+forest_dat <- forest_dat %>% 
+  select(-PROV_T)
+lep <- lep %>% 
+  left_join(forest_dat, by = c("PROV", "YEAR"))
 
 lep$RegAgriHH_PROV_ratio <- lep$RegAgriHH / lep$Population
-
+lep$forest_ratio <- lep$forest_area / lep$PROV_AREA
 lep <- lep %>% 
-  select(-RegAgriHH,Population)
+  select(-RegAgriHH,-Population,-PROV_AREA, -forest_area)
 lep$label <- as.factor(lep$label)
 lep$REGION <- as.factor(lep$REGION)
 
