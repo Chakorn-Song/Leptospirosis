@@ -487,7 +487,7 @@ result_summary <- result %>%
   summarise(
     Actual_mean = mean(Actual, na.rm = TRUE),
     Pred_mean = mean(Pred, na.rm = TRUE),
-    .groups = "drop"  # ใช้เพื่อลบการจัดกลุ่มออก
+    .groups = "drop"
   )
 length(unique(y$AMP))
 
@@ -508,5 +508,33 @@ result_mae$MAE[result_mae$MAE == 0] <- min_nonzero
 
 ```
 
+# 
+```{r}
+install.packages("GGally")
+library(GGally)
+
+target_vars <- c("label", "caseper100k")
+
+indep_vars <- setdiff(names(lep), c("label", "caseper100k", "AMP", "PROV"))
+
+
+chunks <- split(indep_vars, ceiling(seq_along(indep_vars) / 10))
+
+
+for (i in seq_along(chunks)) {
+  vars_to_plot <- c(target_vars, chunks[[i]])
+  
+  cat("\n\n===== Plot ", i, ": ", paste(vars_to_plot, collapse = ", "), "=====\n\n")
+  
+  print(
+    ggpairs(
+      lep[, vars_to_plot],
+      ggplot2::aes(color = label)
+    )
+  )
+  
+  #readline(prompt = "Press Enter")
+}
+```
 
 
