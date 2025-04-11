@@ -379,11 +379,11 @@ result_df <- do.call(rbind, result_list)
 str(result_list)
 for (i in seq_along(actual_pred_list)) {
   file_name <- paste0("actual_pred_", i, ".csv")  
- # write.csv(actual_pred_list[[i]], file_name, row.names = FALSE)
+  write.csv(actual_pred_list[[i]], file_name, row.names = FALSE)
 }
 
 result_df
-#write.csv(result_df, "result2.csv", row.names = FALSE)
+write.csv(result_df, "result2.csv", row.names = FALSE)
 
 result3 <- read.csv("actual_pred_3.csv")
 conf_matrix_list
