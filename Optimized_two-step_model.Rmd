@@ -18,8 +18,7 @@ library(readxl)
 
 lep <- read.csv("LEP9.csv")
 
-lep <-lep %>% 
-  select(temp_mean, temp_variance, YEAR, humi_mean, humi_variance,
+lep <- lep %>% select(temp_mean, temp_variance, YEAR, humi_mean, humi_variance,
          rain_mean, rain_variance, ndwi_mean, ndwi_variance,
          ndvi_mean, ndvi_variance, slope_mean, slope_variance,
          REGION, Frequently_Flooded_Area, Occasionally_Flooded_Area,
@@ -37,17 +36,15 @@ lep <- lep %>%
 
 lep$RegAgriHH_PROV_ratio <- lep$RegAgriHH / lep$Population
 lep$forest_ratio <- lep$forest_area / lep$PROV_AREA
-lep <- lep %>% 
-  select(-RegAgriHH,-Population,-PROV_AREA, -forest_area)
+lep <- lep %>% select(-RegAgriHH,-Population,-PROV_AREA, -forest_area)
 lep$label <- as.factor(lep$label)
 lep$REGION <- as.factor(lep$REGION)
 
 lep <- dummy_cols(lep, select_columns = "REGION", remove_first_dummy = TRUE)
 lep <- lep %>%
   select(-REGION)
-summary(lep)
+
 lep <- lep[!(lep$YEAR %in% c(2020, 2021, 2022)), ]
-unique(lep$YEAR)
 
 hist(lep$caseper100k, breaks = 20)
 
@@ -64,6 +61,7 @@ lep <- lep_non_zero_AMP
 
 # Outer K-fold (split by YEAR)
 kfolds_outer <- split(lep, lep$YEAR)
+colnames(lep)
 
 # Parameter grids for classification and regression
 param_grid_classification <- expand.grid(
@@ -95,7 +93,6 @@ h <- hist(lep$caseper100k,
 
 # เพิ่มตัวเลขบนแท่ง
 text(x = h$mids, y = h$counts, labels = h$counts, pos = 3, col = "blue")
-lep[lep$caseper100k != 0,]
 colnames(lep)
 ```
 
@@ -138,17 +135,19 @@ find_best_params <- function(train_data, param_grid_class, param_grid_reg) {
         
         # train
         train_x_class <- as.matrix(train_inner[, -c("label", "caseper100k",
-                                                     "AMP", "PROV", "YEAR")])
+                                                     "AMP", "PROV", "YEAR",
+                                                     "Population", "RegAgriHH", "MONTH")])
         train_x_1 <- train_inner[train_inner$label != 0,]
         train_x_reg <- as.matrix(train_x_1[, -c("label", "caseper100k",
-                                                   "AMP", "PROV", "YEAR")])
+                                                   "AMP", "PROV", "YEAR",
+                                                   "Population", "RegAgriHH", "MONTH")])
         
         train_y_class <- train_inner$label
         train_y_class <- as.numeric(as.character(train_y_class))
         train_y_reg <- train_x_1$caseper100k
         
         # validation
-        cols_to_remove <- c("label", "caseper100k", "AMP", "PROV", "YEAR")
+        cols_to_remove <- c("label", "caseper100k","AMP", "PROV", "YEAR","Population", "RegAgriHH", "MONTH")
         val_inner <- as.data.frame(val_inner)
         val_x_class <- val_inner[, !colnames(val_inner) %in% cols_to_remove]
         val_x_class <- as.matrix(val_x_class)
@@ -201,8 +200,7 @@ find_best_params <- function(train_data, param_grid_class, param_grid_reg) {
         val_reg <- subset(val_inner, pred_classification == "1")
         length(pred_classification)
 
-        cols_to_remove <- intersect(colnames(val_reg),c("label", "caseper100k",
-                                                        "AMP", "PROV", "YEAR"))
+        cols_to_remove <- intersect(colnames(val_reg),c("label", "caseper100k","AMP", "PROV", "YEAR","Population", "RegAgriHH", "MONTH"))
         val_x_reg <- as.matrix(val_reg[, !names(val_reg) %in% cols_to_remove])
         
         
@@ -247,7 +245,7 @@ foreach(i = seq_along(kfolds_outer), .packages = c("foreach", "xgboost")) %do% {
   test_set <- kfolds_outer[[i]]
   train_set <- data.table::rbindlist(kfolds_outer[-i])
   Year_zero <- unique(test_set$YEAR)
-  cols_to_remove <- c("label", "caseper100k", "AMP", "PROV", "YEAR")
+  cols_to_remove <- c("label", "caseper100k", "AMP", "PROV", "YEAR","Population", "RegAgriHH", "MONTH")
   test_class <- as.matrix(test_set[, !colnames(test_set) %in% cols_to_remove])
   
   #best parameter
@@ -260,8 +258,7 @@ foreach(i = seq_along(kfolds_outer), .packages = c("foreach", "xgboost")) %do% {
 
   # classification
   final_model_classification <- xgboost(
-    data = as.matrix(train_set[, -c("label", "caseper100k",
-                                    "AMP", "PROV", "YEAR")]),
+    data = as.matrix(train_set[, -c("label", "caseper100k","AMP", "PROV", "YEAR", "Population", "RegAgriHH", "MONTH")]),
     label = as.numeric(as.character(train_set$label)),
     nrounds = 1000,
     params = as.list(best_params$classification$best_params),
@@ -271,7 +268,7 @@ foreach(i = seq_along(kfolds_outer), .packages = c("foreach", "xgboost")) %do% {
     early_stopping_rounds = 50,
     verbose = 1
   )
-  
+  colnames(train_set)
   # predict on test set
   pred_classification <- predict(final_model_classification, test_class)
   # cut-off
@@ -299,8 +296,7 @@ foreach(i = seq_along(kfolds_outer), .packages = c("foreach", "xgboost")) %do% {
   #_____________________________________________________________________________
   # training set (regression)
   train_set_reg <- train_set[train_set$label != 0,]
-  train_reg <- as.matrix(train_set_reg[, -c("label", "caseper100k",
-                                        "AMP", "PROV", "YEAR")])
+  train_reg <- as.matrix(train_set_reg[, -c("label", "caseper100k","AMP", "PROV", "YEAR", "Population", "RegAgriHH", "MONTH")])
   # test set (regression)
   test_set_reg <- subset(test_set, pred_classification == "1")
   test_reg <- as.matrix(test_set_reg[, !colnames(test_set_reg) %in% cols_to_remove])
@@ -383,12 +379,8 @@ for (i in seq_along(actual_pred_list)) {
 }
 
 result_df
-write.csv(result_df, "result2.csv", row.names = FALSE)
+write.csv(result_df, "tuning_result.csv", row.names = FALSE)
 
-result3 <- read.csv("actual_pred_3.csv")
-conf_matrix_list
-rmse <- sqrt(mean((result3$Pred - result3$Actual)^2))
-mae_f <- mean(abs(result3$Pred - result3$Actual))
 stopCluster(cl)
 ```
 
@@ -398,8 +390,7 @@ best_params$classification$best_params
 best_params$regression$best_params
 
 final_model_classification <- xgboost(
-    data = as.matrix(train_set[, -c("label", "caseper100k",
-                                    "AMP", "PROV", "YEAR")]),
+    data = as.matrix(train_set[, -c("label", "caseper100k","AMP", "PROV", "YEAR", "Population", "RegAgriHH", "MONTH")]),
     label = as.numeric(as.character(train_set$label)),
     nrounds = 1000,
     params = as.list(best_params$classification$best_params),
@@ -411,13 +402,11 @@ final_model_classification <- xgboost(
   )
 
 
-importance_matrix <- xgb.importance(
+importance_matrix_cl <- xgb.importance(
   model = final_model_classification, 
-  feature_names = colnames(train_set[, -c("label", "caseper100k", "AMP", "PROV", "YEAR")])
+  feature_names = colnames(train_set[, -c("label", "caseper100k","AMP", "PROV", "YEAR", "Population", "RegAgriHH", "MONTH")])
 )
-
-print(importance_matrix)
-xgb.plot.importance(importance_matrix, top_n = 10)
+xgb.plot.importance(importance_matrix_cl, top_n = 10)
 
 
 
@@ -434,67 +423,11 @@ final_model_regression <- xgboost(
   )
 
 
-importance_matrix <- xgb.importance(
-  model = final_model_regression, 
-  feature_names = colnames(train_set[, -c("label", "caseper100k", "AMP", "PROV", "YEAR")])
+importance_matrix_reg <- xgb.importance(
+  model = final_model_regression,
+  feature_names = colnames(train_set[, -c("label", "caseper100k","AMP", "PROV", "YEAR", "Population", "RegAgriHH", "MONTH")])
 )
-xgb.plot.importance(importance_matrix, top_n = 10)
-
-
-result3 <- read.csv("actual_pred_3.csv")
-colnames(result3)
-
-result_mae <- result3 %>%
-  group_by(PROV, AMP) %>%
-  summarise(MAE = mean(abs(Pred - caseper100k), na.rm = TRUE))
-
-result <- result %>% 
-  select(Actual, Pred, PROV, AMP, YEAR, MONTH)
-result_m <- result %>%
-  filter(Actual > 0) %>%  # กรองเฉพาะค่าที่ Actual > 0
-  group_by(YEAR, MONTH) %>%  # จัดกลุ่มตามปีและเดือน
-  summarise(Count = n(), .groups = "drop") %>%  # นับจำนวนแถวที่ Actual > 0
-  arrange(desc(Count))
-
-summary(result)
-
-write.csv(result, "result2.csv", row.names = FALSE)
-
-str(result)
-
-result_summary <- result3 %>%
-  group_by(PROV, AMP) %>%
-  summarise(
-    Actual_mean = mean(caseper100k, na.rm = TRUE),
-    Pred_mean = mean(Pred, na.rm = TRUE),
-    .groups = "drop"  # ใช้เพื่อลบการจัดกลุ่มออก
-  )
-write.csv(result_summary, "resultmean.csv", row.names = FALSE)
-
-unique(result_summary$AMP)
-
-th <- read.csv("th.csv")
-th <- th %>% 
-  select(AMP, PROV)
-
-
-result <- result[result$MONTH == 12, ]
-result <- result %>% 
-  select(-MONTH)
-result[result$Actual > 0,]
-result_summary <- result %>%
-  group_by(PROV, AMP) %>%
-  summarise(
-    Actual_mean = mean(Actual, na.rm = TRUE),
-    Pred_mean = mean(Pred, na.rm = TRUE),
-    .groups = "drop"
-  )
-length(unique(y$AMP))
-
-result_summary$Actual_mean <- result_summary$Actual_mean + 0.0000001
-result_summary$Pred_mean <- result_summary$Pred_mean- 0.0000001
-
-summary(result_summary$Pred_mean)
+xgb.plot.importance(importance_matrix_reg, top_n = 10)
 
 #---------
 result_mae
