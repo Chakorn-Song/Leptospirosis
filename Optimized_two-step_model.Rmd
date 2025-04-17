@@ -388,6 +388,7 @@ stopCluster(cl)
 
 # importance
 ```{r}
+library(ggplot2)
 best_params$classification$best_params
 best_params$regression$best_params
 
@@ -400,7 +401,7 @@ final_model_classification <- xgboost(
     eval_metric = "logloss",
     nthread = num_cores,
     early_stopping_rounds = 50,
-    verbose = 1
+    verbose = 0
   )
 
 
@@ -408,9 +409,6 @@ importance_matrix_cl <- xgb.importance(
   model = final_model_classification, 
   feature_names = colnames(train_set[, -c("label", "caseper100k","AMP", "PROV", "YEAR", "Population", "RegAgriHH", "MONTH")])
 )
-xgb.plot.importance(importance_matrix_cl, top_n = 10)
-
-
 
 final_model_regression <- xgboost(
     data = train_reg,
@@ -429,47 +427,35 @@ importance_matrix_reg <- xgb.importance(
   model = final_model_regression,
   feature_names = colnames(train_set[, -c("label", "caseper100k","AMP", "PROV", "YEAR", "Population", "RegAgriHH", "MONTH")])
 )
-xgb.plot.importance(importance_matrix_reg, top_n = 10)
 
-#---------
-result_mae
-
-write.csv(result_mae, "resultmae_byamp.csv", row.names = FALSE)
-result_mae <- read.csv("resultmae_byamp.csv")
-summary(result_mae)
-
-min_nonzero <- min(result_mae$MAE[result_mae$MAE > 0])
-result_mae$MAE[result_mae$MAE == 0] <- min_nonzero
-
+# Classification importance plot
+df_imp_cl <- as.data.frame(importance_matrix_cl)
+p1 <- ggplot(df_imp_cl[1:10, ], aes(x = reorder(Feature, Gain), y = Gain, fill = Gain)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_gradient(low = "#FFCC99", high = "#FF6600") +  
+  labs(title = "Top 10 Important Features (Classification Model)",
+       x = "Feature",
+       y = "Gain") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "right")
+print(p1)
+ggsave("importance_classification.jpg", plot = p1)
+# Regression importance plot
+df_imp_reg <- as.data.frame(importance_matrix_reg)
+p2 <- ggplot(df_imp_reg[1:10, ], aes(x = reorder(Feature, Gain), y = Gain, fill = Gain)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_gradient(low = "#FFCC99", high = "#FF6600") +  
+  labs(title = "Top 10 Important Features (Regression Model)",
+       x = "Feature",
+       y = "Gain") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "right")
+print(p2)
+ggsave("importance_regression.jpg", plot = p2)
 ```
 
-# 
-```{r}
-install.packages("GGally")
-library(GGally)
 
-target_vars <- c("label", "caseper100k")
-
-indep_vars <- setdiff(names(lep), c("label", "caseper100k", "AMP", "PROV"))
-
-
-chunks <- split(indep_vars, ceiling(seq_along(indep_vars) / 10))
-
-
-for (i in seq_along(chunks)) {
-  vars_to_plot <- c(target_vars, chunks[[i]])
-  
-  cat("\n\n===== Plot ", i, ": ", paste(vars_to_plot, collapse = ", "), "=====\n\n")
-  
-  print(
-    ggpairs(
-      lep[, vars_to_plot],
-      ggplot2::aes(color = label)
-    )
-  )
-  
-  #readline(prompt = "Press Enter")
-}
-```
 
 
