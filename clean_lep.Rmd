@@ -1,0 +1,1820 @@
+---
+title: "Leptospirosis"
+author: "Toy"
+date: "2024-12-01"
+output: html_document
+---
+# Setup
+```{r setup, massage=FALSE,warning=FALSE, cache = TRUE}
+# Library
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(readr)
+
+################################################################################
+# Import data
+case <- read_excel("01lapto_case.xlsx")
+RainVolume <- read_excel("02RainVolume.xlsx")
+temp <- read_excel("03Avgtemperature (Max + min)div2.xlsx")
+Humidity <- read_excel("04avgHumidity.xlsx")
+station <- read_excel("station.xlsx")
+
+################################################################################
+# clean short to long format
+
+# Number of case 
+
+case_long <- case %>%
+  pivot_longer(cols = Jan:Dec,
+               names_to = "MONTH",
+               values_to = "Total_MONTH") %>% 
+  select(AMP_ID, AMP_T, AMP_E, PROV_ID,
+         PROV_T, PROV_E, YEAR, MONTH, Total_MONTH)
+
+
+# Rain Volume 
+
+RainVolume_long <- RainVolume %>% 
+  pivot_longer(cols = Jan:Dec,
+               names_to = "MONTH",
+               values_to = "Volume") %>% 
+  mutate(
+    ID = str_extract(StationID, "^[0-9]+"), 
+    AMP_T = str_extract(StationID, "(?<=-)[^ ]+"),
+    PROV_T = str_extract(StationID, "(?<=จ\\.)[^ ]+") %>% str_trim()
+  ) %>% 
+  select(ID, AMP_T, PROV_T, YEAR
+         , MONTH, Volume, AVG)
+
+#-------------------------------------------------------------------------------
+#temp
+summary(temp)
+colnames(Temp_Long)
+# Value = (MAX + min)/2 == temp
+Temp_Long <- temp %>% 
+  pivot_longer(cols = Jan:Dec,
+               names_to = "MONTH",
+               values_to = "Temp") %>% 
+  mutate(
+    ID = str_extract(StationID, "^[0-9]+"), 
+    AMP_T = str_extract(StationID, "(?<=-)[^ ]+"),
+    PROV_T = str_extract(StationID, "(?<=จ\\.)[^ ]+") %>% str_trim()
+  ) %>% 
+  select(ID, AMP_T, PROV_T, YEAR
+         , MONTH, Temp, AVG)
+#-------------------------------------------------------------------------------
+
+Humidity_Long <- Humidity %>% 
+  pivot_longer(cols = Jan:Dec,
+               names_to = "MONTH",
+               values_to = "Humidity") %>% 
+  mutate(
+    ID = str_extract(StationID, "^[0-9]+"), 
+    AMP_T = str_extract(StationID, "(?<=-)[^ ]+"),
+    PROV_T = str_extract(StationID, "(?<=จ\\.)[^ ]+") %>% str_trim()
+  ) %>% 
+  select(ID, AMP_T, PROV_T, YEAR,
+         MONTH, Humidity, AVG)
+#-------------------------------------------------------------------------------
+#Export
+case_long[case_long$Total_MONTH != 0 ,]
+
+write.csv(case_long, file = "case_long_format.csv", row.names = FALSE)
+write.csv(Temp_Long, file = "Temp_Long_format.csv", row.names = FALSE)
+write.csv(Humidity_Long, file = "Humidity_Long_format.csv", row.names = FALSE)
+write.csv(RainVolume_long, file = "RainVolume_long_format.csv", row.names = FALSE)
+
+
+#ndvi
+ndvi60 <- read_csv("ndvi60.csv")
+ndvi60$Year <- 2017
+
+ndvi61 <- read_csv("ndvi61.csv")
+ndvi61$Year <- 2018
+
+ndvi62 <- read_csv("ndvi62.csv")
+ndvi62$Year <- 2019
+
+ndvi63 <- read_csv("ndvi62.csv")
+ndvi63$Year <- 2020
+
+ndvi64 <- read_csv("ndvi64.csv")
+ndvi64$Year <- 2021
+
+ndvi65 <- read_csv("ndvi65.csv")
+ndvi65$Year <- 2022
+
+ndvi <- rbind(ndvi60, ndvi61, ndvi62, ndvi63, ndvi64, ndvi65)
+write.csv(ndvi, file = "ndvi.csv", row.names = FALSE)
+#928*6 = 5568
+#ndwi
+ndwi60 <- read_csv("ndwi60.csv")
+ndwi60$Year <- 2017
+
+ndwi61 <- read_csv("ndwi61.csv")
+ndwi61$Year <- 2018
+
+ndwi62 <- read_csv("ndwi62.csv")
+ndwi62$Year <- 2019
+
+ndwi63 <- read_csv("ndwi62.csv")
+ndwi63$Year <- 2020
+
+ndwi64 <- read_csv("ndwi64.csv")
+ndwi64$Year <- 2021
+
+ndwi65 <- read_csv("ndwi65.csv")
+ndwi65$Year <- 2022
+
+
+ndwi <- rbind(ndwi60, ndwi61, ndwi62, ndwi63, ndwi64, ndwi65)
+write.csv(ndwi, file = "ndwi.csv", row.names = FALSE)
+```
+## pre1
+```{r stt,massage=FALSE,warning=FALSE, cache = TRUE}
+# รหัสสถานี to ID
+station <- read_excel("station.xlsx")
+Humidity_Long
+colnames(station)[colnames(station) == "รหัสสถานี"] <- "ID"
+
+str(Humidity_Long)
+str(station)
+station$ID <- as.character(station$ID)
+
+ms <- Humidity_Long %>% 
+  left_join(station, by = c("ID")) # why nrow(Humidity_Long) != nrow(ms)
+
+summary(ms)
+
+
+noinfo_station <- ms[is.na(ms$Latitude...6),]
+
+length(unique(noinfo_station$ID))
+
+#
+unique(noinfo_station$ID)
+
+# add value
+colnames(ms)[colnames(ms) == "จังหวัด"] <- "District"
+na.omit(ms)
+
+
+
+# rename
+station_loc <- read_csv("station_loc.csv")
+colnames(station_loc)[colnames(station_loc) == "จังหวัด"] <- "District"
+station_loc[station_loc$District == "บึงกาฬ", ]
+na.omit(station_loc)
+
+
+
+
+# บึงกาฬ ตำแหน่งผิด check ด้วย###
+summary(ms)
+
+library(tidygeocoder)
+#---------------------------------------
+# data 103 sec 
+df_with_district <- station_loc %>%
+  reverse_geocode(
+    lat = Latitude...11,
+    long = Longitude...12,
+    method = "osm",  # open street map
+    full_results = TRUE
+  )
+str(df_with_district)
+summary(df_with_district)
+write.csv(df_with_district, file = "station_district.csv", row.names = FALSE)
+#---------------------------------------
+
+
+unique(st.dis$District)
+```
+
+## rename column
+
+```{r, massage=FALSE,warning=FALSE}
+#Import data
+case <- read_csv("case_long_format.csv") #
+
+ndvi <- read_csv("ndvi.csv") #
+ndwi <- read_csv("ndwi.csv") #
+
+soil <- read_csv("soil.csv") 
+#จ. กาฬสินธุ์ เพิ้มใน PROV_T #BKK ไม่มีเขตหรือ AMP สำหรับการ join
+flood <- read_csv("floodt.csv")
+# land used
+
+#check data
+
+# ndvi
+summary(ndvi)
+colnames(ndvi)
+
+colnames(ndvi)[colnames(ndvi) == "_mean"] <- "ndvi_mean"
+colnames(ndvi)[colnames(ndvi) == "_median"] <- "ndvi_median"
+colnames(ndvi)[colnames(ndvi) == "_max"] <- "ndvi_max"
+colnames(ndvi)[colnames(ndvi) == "_min"] <- "ndvi_min"
+colnames(ndvi)[colnames(ndvi) == "Year"] <- "YEAR"
+
+ndvi <- ndvi %>% select(ADM1_EN, ADM1_TH, ADM2_EN, ADM2_TH, YEAR,
+                        ndvi_mean, ndvi_max, ndvi_median, ndvi_min)
+
+#olnames(ndvi) <- c("AMP_E", "AMP_T", "PROV_E", "PROV_T","YEAR",
+#                    "ndvi_mean", "ndvi_max", "ndvi_median", "ndvi_min")
+write.csv(ndvi, file = "ndvi.csv", row.names = FALSE)
+#---------------------------------
+# ndwi
+summary(ndwi)
+colnames(ndwi)[colnames(ndwi) == "_mean"] <- "ndwi_mean"
+colnames(ndwi)[colnames(ndwi) == "_median"] <- "ndwi_median"
+colnames(ndwi)[colnames(ndwi) == "_max"] <- "ndwi_max"
+colnames(ndwi)[colnames(ndwi) == "_min"] <- "ndwi_min"
+colnames(ndwi)[colnames(ndwi) == "Year"] <- "YEAR"
+
+ndwi <- ndwi %>% select(ADM1_EN, ADM1_TH, ADM2_EN, ADM2_TH, YEAR,
+                        ndwi_mean, ndwi_max, ndwi_median, ndwi_min)
+
+#colnames(ndwi) <- c("AMP_E", "AMP_T", "PROV_E", "PROV_T","YEAR",
+ #                   "ndwi_mean", "ndwi_max", "ndwi_median", "ndwi_min") ชื่อผิดๆๆๆๆๆ
+
+write.csv(ndwi, file = "ndwi.csv", row.names = FALSE)
+
+#---------------------------------
+colnames(case)
+colnames(rain)
+rain_m <- rain[, c("AMP_T","PROV_T", "YEAR", "MONTH", "Volume")]
+case_m <- case[, c("AMP_T", "AMP_E", "PROV_T", "PROV_E",
+                   "MONTH", "Total_MONTH", "YEAR")]
+Humidity_m <- Humidity[, c("AMP_T", "PROV_T", "YEAR", "MONTH",
+                           "Humidity")]
+
+str(rain_m)
+length(unique(case_m$PROV_T))
+str(rain_m)
+#length(unique(rain_t$PROV_T))
+#------------------------------------------------
+
+length(unique(case_m$AMP_T))
+
+common_prov <- intersect(unique(Humidity_m$AMP_T),
+                         unique(case_m$AMP_T))
+length(common_prov)
+#-----------------------------------------------
+merge_data <- case_m %>% 
+  left_join(rain_m, by = c("PROV_T", "YEAR", "MONTH"))
+
+colnames(case_m)
+colnames(rain_m)
+
+unique(rain_m$PROV_T)
+
+unique(case_m$PROV_T)
+
+rain_t <- rain_m %>% 
+  distinct(PROV_T, YEAR, MONTH, .keep_all = TRUE)
+
+#-----------
+ndwi_m <- ndwi[, c("AMP_T", "PROV_T", "YEAR", "ndwi_mean", "ndwi_max",
+                   "ndwi_median", "ndwi_min")]
+#check 
+merge_data <- case_m %>% 
+  left_join(ndwi_m, by = c("AMP_T", "PROV_T", "YEAR"))
+
+#check duplicate data amp_t prov_t
+```
+
+
+# station
+```{r stt2,massage=FALSE,warning=FALSE, cache = TRUE}
+# map plot
+library(leaflet)
+st.dis <- df_with_district
+
+colnames(st.dis)[colnames(st.dis) == "Latitude...11"] <- "Latitude"
+colnames(st.dis)[colnames(st.dis) == "Longitude...12"] <- "Longitude"
+colnames(st.dis)[colnames(st.dis) == "จังหวัด"] <- "District"
+#remove บึงกาฬ 
+st.dis <- st.dis[st.dis$District != "บึงกาฬ", ]
+summary(st.dis)
+#----------------------------------------------
+# thailand_border <- st_read("geoBoundaries-THA-ADM0_simplified.geojson") bug
+stationmap_plot <- leaflet(st.dis) %>%
+  addTiles() %>%  # OpenStreetMap
+  addCircles(
+    lng = ~Longitude, lat = ~Latitude,
+    radius = 50000, color = "blue", weight = 1, opacity = 0.001, fillOpacity = 0.01
+  ) %>%
+  addCircleMarkers(
+    lng = ~Longitude, lat = ~Latitude,
+    popup = ~paste("District:", ID),
+    radius = 0.0001, color = "red", fill = TRUE, fillOpacity = 0.7
+  )
+
+#---------------------------------------------------------------------
+
+station_loc <- read_csv("station_loc.csv")
+# import and add value to NA
+## rain
+rain <- read_csv("RainVolume_long_format.csv")
+rain <- rain %>% select(ID, AMP_T, YEAR, MONTH, Volume, AVG)
+rain$Volume[is.na(rain$Volume)] <-
+  rain$AVG[is.na(rain$Volume)]
+## temp
+temp <- read_csv("Temp_Long_format.csv") #
+temp <- temp %>% select(ID, AMP_T, YEAR, MONTH, Temp, AVG)
+temp$Temp[is.na(temp$Temp)] <-
+  temp$AVG[is.na(temp$Temp)]
+## Humidity
+Humidity <- read_csv("Humidity_Long_format.csv")
+Humidity <- Humidity %>% select(ID, AMP_T, YEAR, MONTH, Humidity, AVG)
+Humidity$Humidity[is.na(Humidity$Humidity)] <-
+  Humidity$AVG[is.na(Humidity$Humidity)]
+#ndwi <- read_csv("ndwi.csv")
+#ndwi <- ndvi.csv("ndvi.csv")
+
+station_merge <- rain %>% 
+  left_join(temp, by = c("ID","AMP_T","YEAR","MONTH")) %>% 
+  left_join(Humidity, by = c("ID","AMP_T","YEAR","MONTH"))
+
+station_loc_filltered <- station_loc %>% 
+  select(ID, AMP_T, YEAR, MONTH, Latitude...11, Longitude...12)
+
+station_merge <- station_merge %>% 
+  left_join(station_loc_filltered,
+            by = c("ID","AMP_T","YEAR","MONTH"))
+
+station_merge <- station_merge %>% 
+  select(-AVG.x, -AVG.y, -AVG)
+
+summary(station_merge)
+Station_merge_backup <- station_merge
+write.csv(Station_merge_backup, file = "Station_merge_backup.csv", row.names = FALSE)
+station_merge <- na.omit(station_merge)
+summary(station_merge)
+station_merge <- station_merge %>% 
+  select(-AVG.x, -AVG.y, -AVG)
+
+colnames(station_merge)[colnames(station_merge) == "Latitude...11"] <- "Latitude"
+colnames(station_merge)[colnames(station_merge) == "Longitude...12"] <- "Longitude"
+
+station_merge[station_merge$AMP_T == "กาฬสินธุ์",]
+station_merge$Longitude[station_merge$AMP_T == "กาฬสินธุ์"] <- 103.50692
+station_merge$Latitude[station_merge$AMP_T == "กาฬสินธุ์"] <- 16.432510
+
+write.csv(station_merge, file = "Station_merge.csv", row.names = FALSE)
+#---------------------------------------------------------------------
+
+```
+
+# IDW
+```{r idw, massage=FALSE,warning=FALSE, cache = TRUE}
+library(gstat)
+chooseCRANmirror()
+install.packages("sf")
+
+library(sf)
+
+# station_loc
+station_merge <- read_csv("Station_merge.csv")
+head(station_merge)
+colnames(station_merge)[colnames(station_merge) == "Latitude...11"] <- "Latitude"
+colnames(station_merge)[colnames(station_merge) == "Longitude...12"] <- "Longitude"
+
+stationmap_plot <- leaflet(station_merge) %>%
+  # OpenStreetMap
+  addTiles() %>%
+#  addCircles(
+#    lng = ~Longitude, lat = ~Latitude,
+#    radius = 50000, color = "blue", weight = 1, opacity = 0.001, fillOpacity = 0.01
+#  ) %>%
+  addCircleMarkers(
+    lng = ~Longitude, lat = ~Latitude,
+    popup = ~paste("District:", AMP_T),
+    radius = 0.0000001, color = "red", fill = TRUE, fillOpacity = 0.7
+  )
+
+uniy <- unique(station_merge$YEAR)
+unim <- unique(station_merge$MONTH)
+#na.omit(station_merge)
+station_merge <- station_merge %>% 
+  filter(!is.na(station_merge$Latitude) & !is.na(station_merge$Longitude))
+# save loop for IDW process
+for (y in uniy){
+  for (m in unim){
+    
+    sta_temp <- station_merge[station_merge$YEAR == y & station_merge$MONTH == m, ]
+    
+    filename <- paste0("station_", m, "_", y, ".csv")
+    print(filename)
+    write.csv(sta_temp, file = filename, row.names = FALSE)
+  }
+}
+
+
+
+
+```
+
+# station idw data
+```{r}
+uniy <- unique(station_merge$YEAR)
+unim <- seq(1:12)
+
+v <- list()
+t <- list()
+h <- list()
+for (y in uniy) {
+  for (m in unim) {
+    vol <- sprintf("vol_%d_%d.csv", m, y)
+    temp <- sprintf("temp_%d_%d.csv", m, y)
+    humi <- sprintf("humi_%d_%d.csv", m, y)
+    
+    
+    #check vol
+    if (file.exists(vol)) {
+      vol_data <- read.csv(vol)
+      colnames(vol_data)[colnames(vol_data) ==
+                           "ADM2_TH"] <- "AMP_T"
+      colnames(vol_data)[colnames(vol_data) ==
+                           "ADM1_TH"] <- "PROV_T"
+      
+      vol_data <- vol_data %>% 
+        select(AMP_T, PROV_T, rain_mean,
+               rain_median, rain_max, rain_min)
+      vol_data$MONTH <- m
+      vol_data$YEAR <- y
+      
+      v[[length(v) + 1]] <- vol_data
+      cat("Successfully read file:", vol, "\n")
+    } else {
+
+      cat("File not found:", vol, "\n")
+      break
+    }
+    
+    vol_all <- bind_rows(v)
+    
+    #check temp
+    if (file.exists(temp)) {
+      temp_data <- read.csv(temp)
+      colnames(temp_data)[colnames(temp_data) ==
+                           "ADM2_TH"] <- "AMP_T"
+      colnames(temp_data)[colnames(temp_data) ==
+                           "ADM1_TH"] <- "PROV_T"
+      
+      temp_data <- temp_data %>% 
+        select(AMP_T, PROV_T, temp_mean,
+               temp_median, temp_max, temp_min)
+      temp_data$MONTH <- m
+      temp_data$YEAR <- y
+      
+      t[[length(t) + 1]] <- temp_data
+      cat("Successfully read file:", temp, "\n")
+    } else {
+
+      cat("File not found:", temp, "\n")
+      break
+    }
+    
+    temp_all <- bind_rows(t)
+    
+    
+    #check humi
+    if (file.exists(humi)) {
+      humi_data <- read.csv(humi)
+      colnames(humi_data)[colnames(humi_data) ==
+                           "ADM2_TH"] <- "AMP_T"
+      colnames(humi_data)[colnames(humi_data) ==
+                           "ADM1_TH"] <- "PROV_T"
+      
+      humi_data <- humi_data %>% 
+        select(AMP_T, PROV_T, humi_mean,
+               humi_median, humi_max, humi_min)
+      humi_data$MONTH <- m
+      humi_data$YEAR <- y
+      
+      h[[length(h) + 1]] <- humi_data
+      cat("Successfully read file:", humi, "\n")
+    } else {
+
+      cat("File not found:", humi, "\n")
+      break
+    }
+    
+    humi_all <- bind_rows(h)
+    
+  }
+}
+
+station_data <- vol_all %>% 
+  left_join(temp_all, by = c("AMP_T", "PROV_T",
+                             "MONTH", "YEAR")) %>% 
+  left_join(humi_all, by = c("AMP_T", "PROV_T",
+                             "MONTH", "YEAR"))
+
+summary(station_data)
+
+write.csv(station_data, file = "Station_final.csv", row.names = FALSE)
+
+d <- read_csv("Station_final.csv")
+case_long
+```
+# merge
+```{r mte, massage=FALSE,warning=FALSE, cache = TRUE}
+
+#station ndwi ndvi case
+
+case <- read_csv("case_long_format.csv") 
+station <- read_csv("Station_final.csv")
+ndvi <- read_csv("ndvi.csv")
+ndwi <- read_csv("ndwi.csv")
+#soil <- read_csv("soil.csv") 
+
+colnames(ndvi)[colnames(ndvi) ==
+                           "ADM2_TH"] <- "AMP_T"
+colnames(ndvi)[colnames(ndvi) ==
+                           "ADM1_TH"] <- "PROV_T"
+colnames(ndvi)[colnames(ndvi) ==
+                           "_mean"] <- "ndvi_mean"
+colnames(ndvi)[colnames(ndvi) ==
+                           "_median"] <- "ndvi_median"
+colnames(ndvi)[colnames(ndvi) ==
+                           "_max"] <- "ndvi_max"
+colnames(ndvi)[colnames(ndvi) ==
+                           "_min"] <- "ndvi_min"
+colnames(ndvi)[colnames(ndvi) ==
+                           "Year"] <- "YEAR"
+
+colnames(ndwi)[colnames(ndwi) ==
+                           "ADM2_TH"] <- "AMP_T"
+colnames(ndwi)[colnames(ndwi) ==
+                           "ADM1_TH"] <- "PROV_T"
+colnames(ndwi)[colnames(ndwi) ==
+                           "_mean"] <- "ndwi_mean"
+colnames(ndwi)[colnames(ndwi) ==
+                           "_median"] <- "ndwi_median"
+colnames(ndwi)[colnames(ndwi) ==
+                           "_max"] <- "ndwi_max"
+colnames(ndwi)[colnames(ndwi) ==
+                           "_min"] <- "ndwi_min"
+colnames(ndwi)[colnames(ndwi) ==
+                           "Year"] <- "YEAR"
+                           
+sndvi <- ndvi %>% 
+  select(PROV_T, AMP_T, YEAR, ndvi_mean, ndvi_max, ndvi_median, ndvi_min)
+
+sndwi <- ndwi %>% 
+  select(PROV_T, AMP_T, YEAR, ndwi_mean, ndwi_max, ndwi_median, ndwi_min)
+tempdata <- station %>% 
+  left_join(sndvi, by = c("PROV_T", "AMP_T","YEAR"))
+
+summary(tempdata)
+
+
+summary(ndwi)
+sndwi <- ndwi %>% 
+  select(PROV_T, AMP_T, YEAR, ndwi_mean, ndwi_max, ndwi_median, ndwi_min)
+
+
+tempdata <- tempdata %>% 
+  left_join(sndwi, by = c("PROV_T", "AMP_T","YEAR"))
+
+summary(tempdata)
+
+case <- case %>% 
+  select(AMP_T, PROV_T, YEAR, MONTH ,Total_MONTH)
+
+case <- case %>%
+  mutate(MONTH = recode(MONTH, 
+                        "Jan" = 1, "Feb" = 2, "Mar" = 3, "Apr" = 4, "May" = 5, "June" = 6, 
+                        "July" = 7, "Aug" = 8, "Sept" = 9, "Oct" = 10, "Nov" = 11, "Dec" = 12))
+
+tempdata <- tempdata %>% 
+  left_join(case, by = c("AMP_T", "PROV_T", "YEAR", "MONTH"))
+
+
+colnames(tempdata)[colnames(tempdata) ==
+                           "Total_MONTH"] <- "Case_Count"
+
+#-----------------------------------------------
+#------------------------------------------------
+# slope
+
+slope <- read_csv("slope.csv")
+colnames(slope)[colnames(slope) == "ADM1_TH"] <-
+  "PROV_T"
+colnames(slope)[colnames(slope) == "ADM2_TH"] <-
+  "AMP_T"
+slope <- slope %>% 
+  select(PROV_T, AMP_T, slope_mean,
+         slope_median, slope_max, slope_min)
+
+tempdata <- tempdata %>% 
+  left_join(slope, by = c("PROV_T", "AMP_T"))
+
+cleaned_data <- tempdata
+#-------------------------------
+# flood
+flood <- read_csv("flood.csv")
+colnames(flood)
+
+f1 <- read_csv("f1.csv")
+colnames(f1)
+f1 <- f1 %>% 
+  select(PROV_T, AMP_T, FL_DES)
+f2 <- read_csv("f2.csv")
+f2 <- f2 %>% 
+  select(PROV_T, AMP_T, FL_DES)
+f3 <- read_csv("f3.csv")
+f3 <- f3 %>% 
+  select(PROV_T, AMP_T, FL_DES)
+f4 <- read_csv("f4.csv")
+f4 <- f4 %>% 
+  select(PROV_T, AMP_T, FL_DES)
+f5 <- read_csv("f5.csv")
+f5 <- f5 %>% 
+  select(PROV_T, AMP_T, FL_DES)
+f6 <- read_csv("f6.csv")
+f6 <- f6 %>% 
+  select(PROV_T, AMP_T, FL_DES)
+f7 <- read_csv("f7.csv")
+f7 <- f7 %>% 
+  select(PROV_T, AMP_T, FL_DES)
+
+ftemp <- rbind(f1, f2, f3, f4, f5, f6, f7)
+ftemp$AMP_T <- gsub("^อ\\.", "", ftemp$AMP_T)
+ftemp$PROV_T <- gsub("^จ\\.", "", ftemp$PROV_T)
+
+colnames(flood)
+flood <- flood %>% 
+  select(PROV_T, AMP_T, FL_DES)
+flood$AMP_T <- gsub("^อ\\.", "", flood$AMP_T)
+flood$PROV_T <- gsub("^จ\\.", "", flood$PROV_T)
+
+flood_f <- rbind(flood, ftemp)
+flood_f <- na.omit(flood_f)
+
+unique(flood_f$FL_DES)
+mode_fun <- function(x) {
+  uniq_x <- unique(x)
+  uniq_x[which.max(tabulate(match(x, uniq_x)))]
+}
+
+flood_result <- flood_f %>% 
+  group_by(AMP_T) %>% 
+  summarise(flood_class = mode_fun(FL_DES))
+
+unique(flood_result$flood_class)
+unique(flood$FL_DES)
+
+t <- tempdata %>% 
+  left_join(flood_result, by = c("AMP_T"))
+
+summary(t)
+
+t$flood_class[is.na(t$flood_class)] <- "ไม่มีข้อมูล"
+t$flood_class <- as.factor(t$flood_class)
+flood_complete <- t
+tempdata <- flood_complete
+cleaned_data <- tempdata
+write.csv(cleaned_data, file = "cleaned_data.csv", row.names = FALSE)
+#-----------------------------------------------
+
+#-------------------------------------------------------------------------------
+#land use
+cleaned_data <- read_csv("cleaned_data.csv")
+
+
+#AMP Area
+area <- read_xlsx("AMP_Area.xlsx")
+# check lu
+lu <- read.csv("landuse.csv")
+lu <- lu %>% 
+  select(LUL1_CODE , LUL2_CODE, ADM3_TH,
+         ADM2_TH, ADM1_TH, Shape_Area)
+unique(lu$LUL2_CODE)
+
+head(lu)
+
+max_lul2_per_amp <- data %>%
+  group_by(ADM2_TH, LUL2_CODE) %>%
+  summarise(Total_Area = sum(Shape_Area), .groups = "drop") %>%
+  group_by(ADM2_TH) %>%
+  slice_max(order_by = Total_Area, n = 1, with_ties = FALSE)
+
+length(unique(lu$LUL2_CODE))
+length(unique(lu$ADM2_TH))
+
+lu_max <- lu %>% 
+  group_by(ADM2_TH, LUL2_CODE, ADM1_TH) %>% 
+  summarise(Total_area = sum(Shape_Area), .groups = "drop") %>%
+  group_by(ADM2_TH, ADM1_TH) %>% 
+  slice_max(order_by = Total_area, with_ties = FALSE)
+summary(lu_max)
+length(unique(lu_max$LUL2_CODE))
+
+unique(lu_max$LUL2_CODE)
+
+lu_max[lu_max$ADM1_TH == "กรุงเทพมหานคร", ]
+
+lu_max
+colnames(lu_max)[colnames(lu_max) ==
+                           "ADM2_TH"] <- "AMP_T"
+colnames(lu_max)[colnames(lu_max) ==
+                           "ADM1_TH"] <- "PROV_T"
+cleaned_data
+
+length(unique(cleaned_data$AMP_T))
+unique(cleaned_data$AMP_T)
+
+amp <- read_xlsx("amp.xlsx")
+colnames(amp)[colnames(amp) ==
+                           "PRO_T"] <- "PROV_T"
+missing_rows <- anti_join(cleaned_data, lu_max, by = c("AMP_T", "PROV_T"))
+print(missing_rows)
+amp[amp$AMP_T == "หนองจอก",]
+#หนองจอก	กรุงเทพมหานคร
+
+unique(cleaned_data$AMP_T)
+lu_max <- lu_max %>% 
+  select(AMP_T,PROV_T, LUL2_CODE)
+temp <- cleaned_data %>% 
+  left_join(lu_max, by = c("AMP_T", "PROV_T"))
+
+temp$LUL2_CODE <- as.factor(temp$LUL2_CODE)
+summary(temp)
+
+
+write.csv(temp, file = "cleaned_data2.csv", row.names = FALSE)
+
+#cleaned_data2.csv
+
+temp_dat <- read.csv("cleaned_data2.csv")
+summary(temp)
+```
+# soil
+```{r soil, massage=FALSE,warning=FALSE, cache = TRUE}
+# soil # land_use
+clean <- read.csv("cleaned_data2.csv")
+soil <- read_csv("soil.csv") 
+summary(soil)
+length(unique(soil$PROV_T))
+unique(soil$FID_Soil25)
+t <- clean[!is.na(clean$Case_Count),]
+length(unique(t$AMP_T))
+soil <- soil[!is.na(soil$AMP_T),] #151365
+soil$soilseries <- as.factor(soil$soilseries)
+ss <- soil[!is.na(soil$soilseries),]
+ss[ss$AMP_T == "พระประแดง", ]
+
+length(unique(ss$AMP_T)) #850 -> 550 (missing 300 AMP)
+summary(soil)
+ss$AMP_T <- gsub("^อ\\.", "", ss$AMP_T)
+unique(ss$AMP_T)
+
+summary(soil)
+soil$AMP_T <- gsub("^อ\\.", "", soil$AMP_T)
+t <- tempdata %>% 
+  left_join(soil, by = "AMP_T")
+summary(t)
+
+unique(soil$AMP_T)
+unique(tempdata$AMP_T)
+summary(soil)
+soil[!is.na(soil$AMP_T),]#151,365
+common_values <- intersect(unique(soil$AMP_T), unique(tempdata$AMP_T))
+length(common_values)
+
+soil <- soil %>% 
+  select(soilseries, PROV_T, AMP_T)
+
+unique(soil$soilseries)
+length(unique(soil$AMP_T))
+#การระบายนาของดนคอนขางเลว
+
+#note# year month must be date in final dataset
+
+raw_soil <- data.frame(
+  soil = unique(soil$soilseries)
+)
+write.csv(raw_soil, file = "raw_soil.csv", row.names = FALSE)
+
+soiltest <- read.csv("soiltest.csv")
+unique(soiltest$ADM2_TH)
+
+soilt <- soiltest[soiltest$ADM3_TH == "ทุ่งวัดดอน", ]
+```
+
+# population
+```{r ppp, massage=FALSE,warning=FALSE, cache = TRUE}
+pop <- list()
+for (y in c(60, 61, 62, 63, 64, 65)){
+  stat <- sprintf("stat_c%d.xlsx", y)
+  
+  statpop <- read_excel(stat)
+  
+
+  colnames(statpop)[colnames(statpop) ==
+                           "จำนวนประชากรทั้งหมด"] <- "Population"
+  colnames(statpop)[colnames(statpop) ==
+                           "ชื่อจังหวัด"] <- "PROV_T"
+  
+  colnames(statpop)[colnames(statpop) ==
+                           "รหัสจังหวัด"] <- "c"
+  
+  if (y == 60) {
+    statpop$YEAR <- 2017
+  }
+  if (y == 61) {
+    statpop$YEAR <- 2018
+  }
+  if (y == 62) {
+    statpop$YEAR <- 2019
+  }
+  if (y == 63) {
+    statpop$YEAR <- 2020
+  }
+  if (y == 64) {
+    statpop$YEAR <- 2021
+  }
+  if (y == 65) {
+    statpop$YEAR <- 2022
+  }
+  
+  
+  statpop <- statpop[statpop$c != 0,]  #2527-2449 = 78
+  
+
+  statpop <- statpop %>% 
+    select(PROV_T, Population, YEAR)
+  
+  pop[[length(pop) + 1]] <- statpop
+}
+
+population <- bind_rows(pop)
+
+
+code <- read.csv("CODE_AMP.csv")
+code <- code[!grepl("จังหวัด", code$AMP_T), ]
+code$AMP_T <- gsub("อำเภอ", "", code$AMP_T)
+code$AMP_T <- gsub("เขต", "", code$AMP_T)
+code$CODE <- as.character(code$CODE)
+pop <- code %>% 
+  left_join(population, by = "CODE")
+summary(pop)
+pop <- pop %>% 
+  select(AMP_T, Population, YEAR, CODE)
+
+summary(pop)
+
+pop[is.na(pop$Population),]
+
+length(unique(population$CODE))
+population %>% 
+  count(CODE, YEAR) %>% 
+  filter(n > 1)
+#write.csv(pop, file = "AMP_Population.csv", row.names = FALSE)
+
+
+unique(code$CODE)
+population
+
+population_filtered <- population[population$CODE %in% unique(code$CODE), ]
+
+p <- population[population$YEAR == 2017,]
+q <- population_filtered[population_filtered$YEAR == 2017,]
+sum(q$Population)
+
+population$PROV_T <- gsub("จังหวัด", "", population$PROV_T)
+
+write.csv(population, file = "Population.csv", row.names = FALSE)
+
+
+#-------------------------------------------------------------------------------
+pop <- read.csv("Population.csv")
+lep <- read.csv("cleaned_data2.csv")
+lep <- lep[!is.na(lep$Case_Count),]
+summary(lep)
+
+lep$MONTH <- as.factor(lep$MONTH)
+lep$YEAR <- as.factor(lep$YEAR)
+
+pop$YEAR <- as.factor(pop$YEAR)
+
+data <- lep %>% 
+  left_join(pop, by = c("PROV_T", "YEAR"))
+
+summary(data)
+
+
+data$caseper100k <- (data$Case_Count / data$Population) * 100000
+
+data[!is.na(data$Population),]
+
+str(pop)
+str(lep)
+summary(lep)
+p <- unique(pop$PROV_T)
+l  <- unique(lep$PROV_T)
+
+str(pop)
+str(lep)
+setdiff(p, l)
+
+#24
+data
+```
+
+
+
+
+# #2
+```{r two, massage=FALSE,warning=FALSE, cache = TRUE}
+y <- c(60:65)
+
+ndvi_list <- list()
+for (i in y) {
+  f <- sprintf("ndvi%d.csv", i)
+  dat <- read.csv(f)
+  if (i == 60) {
+    dat$YEAR <- "2017"
+  }
+  if (i == 61) {
+    dat$YEAR <- "2018"
+  }
+  if (i == 62) {
+    dat$YEAR <- "2019"
+  }
+  if (i == 63) {
+    dat$YEAR <- "2020"
+  }
+  if (i == 64) {
+    dat$YEAR <- "2021"
+  }
+  if (i == 65) {
+    dat$YEAR <- "2022"
+  }
+  colnames(dat)[colnames(dat) ==
+                           "ADM1_EN"] <- "PROV"
+  colnames(dat)[colnames(dat) ==
+                           "ADM2_EN"] <- "AMP"
+  colnames(dat)[colnames(dat) ==
+                           "ADM1_TH"] <- "PROV_T"
+  colnames(dat)[colnames(dat) ==
+                             "ADM2_TH"] <- "AMP_T"
+  colnames(dat)[colnames(dat) ==
+                           "X_count"] <- "ndvi_count"
+  colnames(dat)[colnames(dat) ==
+                           "X_sum"] <- "ndvi_sum"
+  colnames(dat)[colnames(dat) ==
+                           "X_mean"] <- "ndvi_mean"
+  colnames(dat)[colnames(dat) ==
+                           "X_median"] <- "ndvi_median"
+  colnames(dat)[colnames(dat) ==
+                           "X_stdev"] <- "ndvi_stdev"
+  colnames(dat)[colnames(dat) ==
+                           "X_min"] <- "ndvi_min"
+  colnames(dat)[colnames(dat) ==
+                           "X_max"] <- "ndvi_max"
+  colnames(dat)[colnames(dat) ==
+                           "X_range"] <- "ndvi_range"
+  colnames(dat)[colnames(dat) ==
+                           "X_minority"] <- "ndvi_minority"
+  colnames(dat)[colnames(dat) ==
+                           "X_majority"] <- "ndvi_majority"
+  colnames(dat)[colnames(dat) ==
+                           "X_variety"] <- "ndvi_variety"
+  colnames(dat)[colnames(dat) ==
+                           "X_variance"] <- "ndvi_variance"
+  if (any(dat$PROV == "Phra Nakhon Si Ayutthaya")) {
+    print(f)
+  }
+  dat <- dat %>% 
+    select(-ADM2_PCODE, -ADM1_PCODE, -ADM0_EN, -ADM0_TH,
+           -ADM0_PCODE, -layer, -path)
+  
+  ndvi_list[[length(ndvi_list) + 1]] <- dat
+}
+ndvi <- bind_rows(ndvi_list)
+
+colnames(ndvi)
+write.csv(ndvi, file = "NDVI.csv", row.names = FALSE)
+#_______________________________________________________________________________
+y <- c(60:65)
+
+ndwi_list <- list()
+for (i in y) {
+  f <- sprintf("ndwi%d.csv", i)
+  dat <- read.csv(f)
+  if (i == 60) {
+    dat$YEAR <- "2017"
+  }
+  if (i == 61) {
+    dat$YEAR <- "2018"
+  }
+  if (i == 62) {
+    dat$YEAR <- "2019"
+  }
+  if (i == 63) {
+    dat$YEAR <- "2020"
+  }
+  if (i == 64) {
+    dat$YEAR <- "2021"
+  }
+  if (i == 65) {
+    dat$YEAR <- "2022"
+  }
+  colnames(dat)[colnames(dat) ==
+                           "ADM1_EN"] <- "PROV"
+  colnames(dat)[colnames(dat) ==
+                           "ADM2_EN"] <- "AMP"
+  colnames(dat)[colnames(dat) ==
+                           "ADM1_TH"] <- "PROV_T"
+  colnames(dat)[colnames(dat) ==
+                             "ADM2_TH"] <- "AMP_T"
+  colnames(dat)[colnames(dat) ==
+                           "X_count"] <- "ndwi_count"
+  colnames(dat)[colnames(dat) ==
+                           "X_sum"] <- "ndwi_sum"
+  colnames(dat)[colnames(dat) ==
+                           "X_mean"] <- "ndwi_mean"
+  colnames(dat)[colnames(dat) ==
+                           "X_median"] <- "ndwi_median"
+  colnames(dat)[colnames(dat) ==
+                           "X_stdev"] <- "ndwi_stdev"
+  colnames(dat)[colnames(dat) ==
+                           "X_min"] <- "ndwi_min"
+  colnames(dat)[colnames(dat) ==
+                           "X_max"] <- "ndwi_max"
+  colnames(dat)[colnames(dat) ==
+                           "X_range"] <- "ndwi_range"
+  colnames(dat)[colnames(dat) ==
+                           "X_minority"] <- "ndwi_minority"
+  colnames(dat)[colnames(dat) ==
+                           "X_majority"] <- "ndwi_majority"
+  colnames(dat)[colnames(dat) ==
+                           "X_variety"] <- "ndwi_variety"
+  colnames(dat)[colnames(dat) ==
+                           "X_variance"] <- "ndwi_variance"
+  
+  dat <- dat %>% 
+    select( -ADM2_PCODE, -ADM1_PCODE, -ADM0_EN, -ADM0_TH,
+           -ADM0_PCODE, -layer, -path)
+  
+  ndwi_list[[length(ndwi_list) + 1]] <- dat
+}
+ndwi <- bind_rows(ndwi_list)
+
+colnames(ndwi)
+write.csv(ndwi, file = "NDWI.csv", row.names = FALSE)
+ndwi
+ndvi
+#_______________________________________________________________________________
+#temp
+y <- 17:22
+m <- 1:12
+temp_list <- list()
+for (i in y) {
+  for (j in m) {
+   
+    f <- sprintf("temp_%d_%d.csv", j, i)
+    
+    if (!file.exists(f)) {
+      message(sprintf("File not found: %s", f))
+      next  
+    }
+    
+    dat <- read.csv(f)
+    #year
+    dat$YEAR <- as.character(2000 + i)
+    #month
+    dat$MONTH <- as.character(j)
+    
+    colnames(dat)[colnames(dat) ==
+                           "ADM1_EN"] <- "PROV"
+    colnames(dat)[colnames(dat) ==
+                             "ADM2_EN"] <- "AMP"
+    colnames(dat)[colnames(dat) ==
+                             "ADM1_TH"] <- "PROV_T"
+    colnames(dat)[colnames(dat) ==
+                             "ADM2_TH"] <- "AMP_T"
+    colnames(dat)[colnames(dat) ==
+                             "X_count"] <- "temp_count"
+    colnames(dat)[colnames(dat) ==
+                             "X_sum"] <- "temp_sum"
+    colnames(dat)[colnames(dat) ==
+                             "X_mean"] <- "temp_mean"
+    colnames(dat)[colnames(dat) ==
+                             "X_median"] <- "temp_median"
+    colnames(dat)[colnames(dat) ==
+                             "X_stdev"] <- "temp_stdev"
+    colnames(dat)[colnames(dat) ==
+                             "X_min"] <- "temp_min"
+    colnames(dat)[colnames(dat) ==
+                             "X_max"] <- "temp_max"
+    colnames(dat)[colnames(dat) ==
+                             "X_range"] <- "temp_range"
+    colnames(dat)[colnames(dat) ==
+                             "X_minority"] <- "temp_minority"
+    colnames(dat)[colnames(dat) ==
+                             "X_majority"] <- "temp_majority"
+    colnames(dat)[colnames(dat) ==
+                             "X_variety"] <- "temp_variety"
+    colnames(dat)[colnames(dat) ==
+                             "X_variance"] <- "temp_variance"
+    
+    dat <- dat %>% 
+    select( -ADM2_PCODE, -ADM1_PCODE, -ADM0_EN, -ADM0_TH,
+           -ADM0_PCODE, -layer, -path)
+    
+    temp_list[[length(temp_list) + 1]] <- dat
+  }
+}
+
+temp <- bind_rows(temp_list)
+write.csv(temp, file = "TEMP.csv", row.names = FALSE)
+#_______________________________________________________________________________
+# vol
+y <- 17:22
+m <- 1:12
+vol_list <- list()
+for (i in y) {
+  for (j in m) {
+   
+    f <- sprintf("vol_%d_%d.csv", j, i)
+    
+    if (!file.exists(f)) {
+      message(sprintf("File not found: %s", f))
+      next  
+    }
+    
+    dat <- read.csv(f)
+    #year
+    dat$YEAR <- as.character(2000 + i)
+    #month
+    dat$MONTH <- as.character(j)
+    colnames(dat)[colnames(dat) ==
+                           "ADM1_EN"] <- "PROV"
+    colnames(dat)[colnames(dat) ==
+                             "ADM2_EN"] <- "AMP"
+    colnames(dat)[colnames(dat) ==
+                             "ADM1_TH"] <- "PROV_T"
+    colnames(dat)[colnames(dat) ==
+                             "ADM2_TH"] <- "AMP_T"
+    colnames(dat)[colnames(dat) ==
+                             "X_count"] <- "rain_count"
+    colnames(dat)[colnames(dat) ==
+                             "X_sum"] <- "rain_sum"
+    colnames(dat)[colnames(dat) ==
+                             "X_mean"] <- "rain_mean"
+    colnames(dat)[colnames(dat) ==
+                             "X_median"] <- "rain_median"
+    colnames(dat)[colnames(dat) ==
+                             "X_stdev"] <- "rain_stdev"
+    colnames(dat)[colnames(dat) ==
+                             "X_min"] <- "rain_min"
+    colnames(dat)[colnames(dat) ==
+                             "X_max"] <- "rain_max"
+    colnames(dat)[colnames(dat) ==
+                             "X_range"] <- "rain_range"
+    colnames(dat)[colnames(dat) ==
+                             "X_minority"] <- "rain_minority"
+    colnames(dat)[colnames(dat) ==
+                             "X_majority"] <- "rain_majority"
+    colnames(dat)[colnames(dat) ==
+                             "X_variety"] <- "rain_variety"
+    colnames(dat)[colnames(dat) ==
+                             "X_variance"] <- "rain_variance"
+    
+    dat <- dat %>% 
+    select(-ADM2_PCODE, -ADM1_PCODE, -ADM0_EN, -ADM0_TH,
+           -ADM0_PCODE, -layer, -path)
+    
+    vol_list[[length(vol_list) + 1]] <- dat
+  }
+}
+
+rain <- bind_rows(vol_list)
+write.csv(rain, file = "RAIN.csv", row.names = FALSE)
+#_______________________________________________________________________________
+# humi
+y <- 17:22
+m <- 1:12
+humi_list <- list()
+for (i in y) {
+  for (j in m) {
+   
+    f <- sprintf("humi_%d_%d.csv", j, i)
+    if (!file.exists(f)) {
+      message(sprintf("File not found: %s", f))
+      next  
+    }
+    
+    dat <- read.csv(f)
+    
+    #year
+    dat$YEAR <- as.character(2000 + i)
+    #month
+    dat$MONTH <- as.character(j)
+    
+    colnames(dat)[colnames(dat) ==
+                           "ADM1_EN"] <- "PROV"
+    colnames(dat)[colnames(dat) ==
+                             "ADM2_EN"] <- "AMP"
+    colnames(dat)[colnames(dat) ==
+                           "ADM1_TH"] <- "PROV_T"
+    colnames(dat)[colnames(dat) ==
+                             "ADM2_TH"] <- "AMP_T"
+    colnames(dat)[colnames(dat) ==
+                             "X_count"] <- "humi_count"
+    colnames(dat)[colnames(dat) ==
+                             "X_sum"] <- "humi_sum"
+    colnames(dat)[colnames(dat) ==
+                             "X_mean"] <- "humi_mean"
+    colnames(dat)[colnames(dat) ==
+                             "X_median"] <- "humi_median"
+    colnames(dat)[colnames(dat) ==
+                             "X_stdev"] <- "humi_stdev"
+    colnames(dat)[colnames(dat) ==
+                             "X_min"] <- "humi_min"
+    colnames(dat)[colnames(dat) ==
+                             "X_max"] <- "humi_max"
+    colnames(dat)[colnames(dat) ==
+                             "X_range"] <- "humi_range"
+    colnames(dat)[colnames(dat) ==
+                             "X_minority"] <- "humi_minority"
+    colnames(dat)[colnames(dat) ==
+                             "X_majority"] <- "humi_majority"
+    colnames(dat)[colnames(dat) ==
+                             "X_variety"] <- "humi_variety"
+    colnames(dat)[colnames(dat) ==
+                             "X_variance"] <- "humi_variance"
+    
+    
+    dat <- dat %>% 
+    select( -ADM2_PCODE, -ADM1_PCODE, -ADM0_EN, -ADM0_TH,
+           -ADM0_PCODE, -layer, -path)
+    
+    humi_list[[length(humi_list) + 1]] <- dat
+  }
+}
+
+humi <- bind_rows(humi_list)
+write.csv(humi, file = "HUMI.csv", row.names = FALSE)  
+
+```
+
+#2 merge
+```{r 2me, massage=FALSE,warning=FALSE, cache = TRUE}
+humi <- read.csv("HUMI.csv")
+temp <- read.csv("TEMP.csv")
+rain <- read.csv("RAIN.csv")
+ndwi <- read.csv("NDWI.csv")
+ndvi <- read.csv("NDVI.csv")
+temp <- na.omit(temp)
+rain <- na.omit(rain)
+humi <- na.omit(humi)
+ndwi <- na.omit(ndwi)
+ndvi <- na.omit(ndvi)
+colnames(humi)
+
+temp <- temp %>% 
+  select(-Shape_Leng, -Shape_Area, -AMP_T, -PROV_T)
+rain <- rain %>% 
+  select(-Shape_Leng, -Shape_Area, -AMP_T, -PROV_T)
+humi <- humi %>% 
+  select(-Shape_Leng, -Shape_Area, -AMP_T, -PROV_T)
+ndwi <- ndwi %>% 
+  select(-Shape_Leng, -Shape_Area, -AMP_T, -PROV_T)
+ndvi <- ndvi %>% 
+  select(-Shape_Leng, -Shape_Area, -AMP_T, -PROV_T)
+66816
+temp$YEAR <- as.integer(temp$YEAR)
+temp$MONTH <- as.integer(temp$MONTH)
+nrow(temp)
+nrow(humi)
+nrow(rain)
+nrow(ndwi)
+temp %>% count(AMP, PROV, YEAR, MONTH) %>% filter(n > 1)
+data <- temp %>% 
+  left_join(humi, by = c("AMP", "PROV", "YEAR", "MONTH"))
+humi %>% count(AMP, PROV, MONTH, YEAR) %>% filter(n > 1)
+ndwi %>% count(AMP, PROV, YEAR) %>% filter(n > 1)
+
+data <- data %>% 
+  left_join(rain, by = c("AMP", "PROV", "YEAR", "MONTH"))
+
+data <- data %>% 
+  left_join(ndwi, by = c("AMP", "PROV", "YEAR"))
+
+data <- data %>% 
+  left_join(ndvi, by = c("AMP", "PROV", "YEAR"))
+
+data %>% count(AMP, PROV, YEAR, MONTH) %>% filter(n > 1)
+
+
+str(humi)
+str(temp)
+str(rain)
+str(ndwi)
+str(ndvi)
+colnames(data)
+colnames(rain)
+
+
+unique(data$PROV)
+
+assign_region <- function(prov) {
+  case_when(
+    prov %in% c("Chiang Mai", "Chiang Rai", "Lampang", "Lamphun", "Mae Hong Son", 
+                "Nan", "Phayao", "Phrae", "Tak", "Uttaradit", "Kamphaeng Phet", 
+                "Nakhon Sawan", "Phichit", "Phitsanulok", "Phetchabun", "Sukhothai", "Uthai Thani") ~ "North",
+    
+    prov %in% c("Kalasin", "Khon Kaen", "Loei", "Maha Sarakham", "Mukdahan", 
+                "Nakhon Phanom", "Nong Bua Lam Phu", "Nong Khai", "Roi Et", "Sakon Nakhon", 
+                "Si Sa Ket", "Surin", "Ubon Ratchathani", "Udon Thani", "Yasothon", 
+                "Amnat Charoen", "Buri Ram", "Chaiyaphum", "Nakhon Ratchasima", "Bueng Kan") ~ "Northeast",
+    
+    prov %in% c("Bangkok", "Nakhon Pathom", "Nonthaburi", "Pathum Thani", "Samut Prakan", 
+                "Samut Sakhon", "Samut Songkhram", "Saraburi", "Lop Buri", "Sing Buri", 
+                "Ang Thong", "Chai Nat", "Phra Nakhon Si Ayutthaya", "Suphan Buri", "Nakhon Nayok") ~ "Central",
+    
+    prov %in% c("Chachoengsao", "Chanthaburi", "Prachin Buri", "Rayong", "Sa Kaeo", 
+                "Trat", "Chon Buri") ~ "East",
+    
+    prov %in% c("Kanchanaburi", "Phetchaburi", "Prachuap Khiri Khan", "Ratchaburi") ~ "West",
+    
+    prov %in% c("Chumphon", "Krabi", "Nakhon Si Thammarat", "Narathiwat", "Pattani", 
+                "Phangnga", "Phatthalung", "Phuket", "Ranong", "Satun", "Songkhla", 
+                "Surat Thani", "Trang", "Yala") ~ "South",
+    
+    TRUE ~ "Unknown"
+  )
+}
+
+#data <- data %>%
+#  mutate(REGION = assign_region(PROV))
+
+
+summary(humi)
+summary(temp)
+
+
+case <- read.csv("case_long_format.csv")
+
+colnames(case)[colnames(case) ==
+                             "AMP_E"] <- "AMP"
+colnames(case)[colnames(case) ==
+                             "PROV_E"] <- "PROV"
+unique(case$MONTH)
+
+month_names <- c("Jan", "Feb", "Mar", "Apr", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec")
+
+case$MONTH <- match(case$MONTH, month_names)
+
+unique(case$MONTH)
+case <- case %>% 
+  select(-AMP_ID, -PROV_ID)
+case$AMP <- gsub("Khet ", "", case$AMP)
+unique(case$AMP)
+colnames(data)
+colnames(case)
+case[case$PROV == "Bangkok",]
+
+data[data$PROV == "Bangkok",]
+dat <- data %>% 
+  left_join(case , by = c("AMP", "PROV", "YEAR", "MONTH"))
+
+
+dat %>% count(AMP, PROV, YEAR, MONTH) %>% filter(n > 1)
+summary(dat)
+
+dat2 <- dat[!is.na(dat$Total_MONTH),]
+summary(dat2)
+
+dat2 <- na.omit(dat2)
+
+
+unique(dat2$PROV)
+
+write.csv(dat2, file = "LEP2.csv", row.names = FALSE) 
+#_______________________________________________________________________________
+slope <- read.csv("slope.csv")
+colnames(slope)[colnames(slope) ==
+                             "ADM2_EN"] <- "AMP"
+colnames(slope)[colnames(slope) ==
+                             "ADM1_EN"] <- "PROV"
+
+slope <- slope %>% 
+  select(-Shape_Leng, -Shape_Area, -ADM2_TH, -ADM2_PCODE, -ADM1_TH,
+         -ADM1_PCODE, -ADM0_EN, -ADM0_TH, -ADM0_PCODE, -layer, -path )
+
+colnames(slope)
+unique(slope$PROV)
+slope[slope$PROV == "Bangkok",]
+
+data <- dat2 %>% 
+  left_join(slope, by = c("AMP", "PROV"))
+
+write.csv(data, file = "LEP2.csv", row.names = FALSE) 
+
+#_______________________________________________________________________________
+slope %>% count(AMP, PROV) %>% filter(n > 1)
+mis <- data %>% count(AMP, PROV, MONTH, YEAR) %>% filter(n > 1)
+unique()
+summary(data)
+#write.csv(data, file = "LEP2.csv", row.names = FALSE) 
+
+pop <- read.csv("Population.csv")
+data[data$PROV == "Phra Nakhon Si Ayutthaya", ]
+unique(data$PROV)
+unique(mis$PROV)
+data
+data <- data[!(data$PROV == "Uthai Thani" & data$AMP == "Ban Rai"),]
+data <- data[!(data$PROV == "Uthai Thani" & data$AMP == "Huai Khot"),]
+data <- data[!(data$PROV == "Uthai Thani" & data$AMP == "Lan Sak"),]
+data <- data[!(data$PROV == "Nonthaburi" & data$AMP == "Bang Bua Thong"),]
+data <- data[!(data$PROV == "Phra Nakhon Si Ayutthaya" & data$AMP == "Bang Bua Thong"),]
+
+data <- data[!(data$PROV == "Yala" & data$AMP == "Bang Bua Thong"),]
+data <- data[!(data$PROV == "Yala" & data$AMP == "Kabang"),]
+data <- data[!(data$PROV == "Yala" & data$AMP == "Krong Pinang"),]
+data <- data[!(data$PROV == "Yala" & data$AMP == "Mueang Yala"),]
+data <- data[!(data$PROV == "Yala" & data$AMP == "Raman"),]
+data <- data[!(data$PROV == "Yala" & data$AMP == "Than To"),]
+data <- data[!(data$PROV == "Yala" & data$AMP == "Yaha"),]
+summary(data)
+data <- data %>%
+  mutate(REGION = assign_region(PROV))
+t <- data[data$REGION == "Unknown", ]
+#  write.csv(data, file = "LEP3.csv", row.names = FALSE) 
+
+	unique(t$PROV)
+#_______________________________________________________________________________
+fl <- read.csv("FL.csv")
+unique(fl$FL_DES)
+
+fl <- fl %>%
+  mutate(FL_DES = case_when(
+    FL_DES == "พื้นที่น้ำท่วมซ้ำซากเป็นครั้งคราว โดยประสบน้ำท่วมขังไม่เกิน 3 ครั้ง ในรอบ 10 ปี" ~ "Occasionally_Flooded_Area",
+    FL_DES == "พื้นที่น้ำท่วมซ้ำซากบ่อยครั้ง โยประสบน้ำท่วมขัง 4-7 ครั้ง ในรอบ 10 ปี" ~ "Frequently_Flooded_Area",
+    FL_DES == "พื้นที่น้ำท่วมซ้ำซากบ่อยครั้ง โดยประสบน้ำท่วมขัง 4-7 ครั้ง ในรอบ 10 ปี" ~ "Frequently_Flooded_Area",
+    FL_DES == "พื้นที่น้ำท่วมซ้ำซากบ่อยครั้ง โดยป" ~ "Frequently_Flooded_Area",
+    FL_DES == "พื้นที่น้ำท่วมซ้ำซากเป็นครั้งคราว" ~ "Occasionally_Flooded_Area",
+    FL_DES == "พื้นที่น้ำท่วมซ้ำซากเป็นประจำ โดยประสบน้ำท่วมขัง 8-10 ครั้ง ในรอบ 10 ปี" ~ "Regularly_Flooded_Area",
+    TRUE ~ FL_DES  # คงค่าเดิมหากไม่มีในเงื่อนไข
+  ))
+
+fl <- fl %>%
+  mutate(
+    TAM_T = str_remove(TAM_T, "^ต\\."),
+    AMP_T = str_remove(AMP_T, "^อ\\."),
+    PROV_T = str_remove(PROV_T, "^จ\\.")
+  )
+
+str(fl)
+fl <- fl %>% 
+  select(AMP_T, PROV_T, FL_DES)
+
+freq_counts <- fl %>%
+  group_by(AMP_T, FL_DES, PROV_T) %>%
+  summarise(count = n(), .groups = "drop")
+
+summary(freq_counts)
+
+fl_amp <- freq_counts %>%
+  group_by(AMP_T, FL_DES, PROV_T) %>%
+  summarise(count = sum(count), .groups = "drop") %>%
+  group_by(AMP_T) %>%
+  mutate(proportion = count / sum(count)) %>%
+  select(-count) %>%
+  pivot_wider(names_from = FL_DES, values_from = proportion, values_fill = list(proportion = 0)) %>%
+  ungroup()
+data[data$YEAR == 2017,]
+
+d <- data %>% 
+  left_join(fl_amp, by = c("AMP_T"))
+
+summary(d)
+
+d[is.na(d$Frequently_Flooded_Area), ]
+unique(fl_amp$PROV_T)
+
+d[d]
+
+d$Frequently_Flooded_Area <- ifelse(is.na(d$Frequently_Flooded_Area),
+                                    "NO_DATA",d$Frequently_Flooded_Area)
+d$Occasionally_Flooded_Area <- ifelse(is.na(d$Occasionally_Flooded_Area),
+                                    "NO_DATA",d$Occasionally_Flooded_Area)
+d$Regularly_Flooded_Area <- ifelse(is.na(d$Regularly_Flooded_Area),
+                                    "NO_DATA",d$Regularly_Flooded_Area)
+
+
+#write.csv(d, file = "LEP3.csv", row.names = FALSE)
+d <- d %>%
+  mutate(REGION = assign_region(PROV))
+
+unique(d$REGION)
+
+#_______________________________________________________________________________
+pop <- read.csv("Population.csv")
+
+data <- d %>% 
+  left_join(pop, by = c("PROV_T", "YEAR"))
+
+t <- data %>% 
+  mutate(
+    caseper100k = (Total_MONTH / Population) * 100000 
+  )
+summary(t)
+yy <- t[t$caseper100k != 0,]
+
+yy[yy$YEAR == 2022,]
+
+#write.csv(t, file = "LEP3.csv", row.names = FALSE)
+
+t <- t %>% 
+  mutate(label = case_when(
+    caseper100k > 0 ~ 1,
+    caseper100k == 0 ~ 0
+  ))
+#_______________________________________________________________________________
+p <- 1:77
+lu_list <- list()
+for (i in p) {
+  lu <- sprintf("lu%d.csv", i)
+  
+  landuse <- read.csv(lu)
+  colnames(landuse)
+  landuse$ADM1_EN <- as.character(landuse$ADM1_EN)
+  
+  
+  lu_list[[length(lu_list) + 1]] <- landuse
+}
+landuse <- bind_rows(lu_list)
+unique(landuse$ADM1_EN)
+#write.csv(landuse, file = "base_landuse.csv", row.names = FALSE)
+lu <- read.csv("base_landuse.csv")
+colnames(lu)
+head(lu)
+lu <- lu %>% 
+  select(LUL2_CODE, ADM2_EN, ADM1_EN, ADM3_EN, LUL1_CODE)
+unique(lu$LUL1_CODE)
+
+landuse <- lu %>% 
+  mutate(LUL2_CODE = case_when(
+    LUL2_CODE == "A1" ~ "Paddy_field",
+    LUL2_CODE == "A3" ~ "Perennial_crop",
+    LUL2_CODE == "A3/A4" ~ "Perennial_crop/Orchard",
+    LUL2_CODE == "A4" ~ "Orchard",
+    LUL2_CODE == "A0" ~ "Integrated_farm/Diversified_farm",
+    LUL2_CODE == "A5" ~ "Horticulture",
+    LUL2_CODE == "A7" ~ "Pasture_and_farm_house",
+    LUL2_CODE == "A8" ~ "Aquatic_plant",
+    LUL2_CODE == "A9" ~ "Aquacultural_land",
+    LUL2_CODE == "A2/A4" ~ "Field_crop/Orchard",
+    LUL2_CODE == "A2" ~ "Field_crop",
+    LUL2_CODE == "A4/A5" ~ "Orchard/Horticulture",
+    LUL2_CODE == "A4/A6" ~ "Orchard/Shifting_cultivation",
+    LUL2_CODE == "A1+A2" ~ "Paddy_field/Field_crop",
+    LUL2_CODE == "A1+A5" ~ "Paddy_field+Horticulture",
+    LUL2_CODE == "A2/A3" ~ "Field_crop/Perennial_crop",
+    LUL2_CODE == "A3/A7" ~ "Perennial_crop/Pasture_and_farm_house",
+    LUL2_CODE == "F1" ~ "Evergreen_forest",
+    LUL2_CODE == "F4" ~ "Swamp_forest",
+    LUL2_CODE == "F7" ~ "Beach_forest",
+    LUL2_CODE == "M1" ~ "Rangeland",
+    LUL2_CODE == "M2" ~ "Marsh_and_Swamp",
+    LUL2_CODE == "M3" ~ "Mine",
+    LUL2_CODE == "M4" ~ "miscellaneous",
+    LUL2_CODE == "M6" ~ "Beach",
+    LUL2_CODE == "M7" ~ "Garbage_dump",
+    LUL2_CODE == "U1" ~ "City_Town_Commercial",
+    LUL2_CODE == "U2" ~ "Village",
+    LUL2_CODE == "A1/A3" ~ "Paddy_field/Perennial_crop",
+    LUL2_CODE == "A1/A4" ~ "Paddy_field/Orchard",
+    LUL2_CODE == "U4" ~ "Communication_and_utility"
+  ))
+
+landuse <- landuse %>% 
+  mutate(LUL1_CODE = case_when(
+    LUL1_CODE == "A" ~ "Agricultural",
+    LUL1_CODE == "F" ~ "Forest",
+    LUL1_CODE == "M" ~ "Miscellaneous",
+    LUL1_CODE == "U" ~ "Urban"
+  ))
+
+
+
+landuse
+
+colnames(landuse)[colnames(landuse) ==
+                           "ADM1_EN"] <- "PROV"
+colnames(landuse)[colnames(landuse) ==
+                           "ADM2_EN"] <- "AMP"
+colnames(landuse)[colnames(landuse) ==
+                           "ADM3_EN"] <- "TAM"
+colnames(landuse)[colnames(landuse) ==
+                           "LUL1_CODE"] <- "landuselv1"
+colnames(landuse)[colnames(landuse) ==
+                           "LUL2_CODE"] <- "landuselv2"
+
+freq_counts <- landuse %>%
+  group_by(AMP, PROV, landuselv1) %>%
+  summarise(count = n(), .groups = "drop")
+freq_counts <- na.omit(freq_counts)
+
+lu_amp <- freq_counts %>%
+  group_by(AMP, landuselv1, PROV) %>%
+  summarise(count = sum(count), .groups = "drop") %>%
+  group_by(AMP) %>%
+  mutate(proportion = count / sum(count)) %>%
+  select(-count) %>%
+  pivot_wider(names_from = landuselv1, values_from = proportion, values_fill = list(proportion = 0)) %>%
+  ungroup()
+
+summary(lu_amp)
+
+na.omit(freq_counts)
+landuse[landuse$landuselv2 == "Communication_and_utility", ]
+
+landuse[landuse$PROV == "Bangkok",]
+landuse$PROV
+dat <- read.csv("LEP3.csv")
+summary(dat)
+colnames(lu_amp)
+
+data <- dat %>% 
+  left_join(lu_amp, by = c("PROV", "AMP"))
+
+summary(data)
+t <- data[is.na(data$`Perennial_crop/Pasture_and_farm_house`),]
+lums<- unique(t[!is.na(t$AMP) & !is.na(t$PROV), c("AMP", "PROV")])
+t <- t[t$PROV == "Bangkok", ]
+unique(t$AMP)
+l <- lu_amp[lu_amp$PROV == "Bangkok", ]
+unique(l$AMP)
+colnames(data)
+print(lums)
+
+
+#_______________________________________________________________________________
+s <- 1:77
+soil_list <- list()
+for (i in s) {
+  so <- sprintf("s%d.csv", i)
+  dat <-read.csv(so)
+  dat$ADM1_EN <- as.character(dat$ADM1_EN)
+  
+  colnames(dat)[colnames(dat) == "ADM1_EN"] <- "PROV"
+  colnames(dat)[colnames(dat) == "ADM2_EN"] <- "AMP"
+
+  soil_list[[i]] <- dat
+}
+soil <- bind_rows(soil_list)
+
+colnames(soil)
+soil <- soil %>% 
+  select(soilseries, PROV, AMP, soil_area)
+unique(soil$AMP)
+
+#
+sclass <- read.csv("soilclass.csv")
+class <- sclass[sclass$soil != "good_drainage",]
+unique(class$soil)
+colnames(class)
+colnames(soil)
+colnames(soil)[colnames(soil) == "soilseries"] <- "soil"
+sc <- soil %>% 
+  left_join(class, by = c("soil"))
+
+summary(sc)
+s <- sc[!is.na(sc$soil),]
+s$class <- as.character(s$class)
+summary(s)
+s <- s %>%
+  mutate(class = ifelse(is.na(class), "Unknown", class))
+s$class <- as.factor(s$class)
+
+#
+str(s)
+s[s$PROV == "Bangkok" & s$AMP == "Lat Krabang",]
+
+soil_summary <- s %>%
+  group_by(PROV, AMP, class) %>%
+  summarise(total_area = sum(soil_area), .groups = "drop") %>%
+  group_by(PROV, AMP) %>%
+  mutate(fraction = total_area / sum(total_area)) %>%
+  select(-total_area) %>%
+  pivot_wider(names_from = class, values_from = fraction, values_fill = 0)
+
+#_______________________________________________________________________________
+lep <- read.csv("LEP3.csv")
+
+colnames(lep)
+colnames(soil_summary)
+
+colnames(soil_summary)[colnames(soil_summary) == "Unknown"] <- "Unknown_drainage"
+
+
+data <- lep %>% 
+  left_join(soil_summary, by = c("PROV", "AMP"))
+
+summary(data)
+data <- data %>%
+  mutate(across(c(moderate_to_good_drainage, somewhat_poor_drainage, poor_drainage,
+                  very_poor_drainage, poor_to_somewhat_poor_drainage, good_drainage, moderate_drainage),
+                ~ ifelse(is.na(.), 0, .))) %>%
+  mutate(Unknown_drainage = ifelse(is.na(Unknown_drainage), 1, Unknown_drainage))
+
+#write.csv(data, file = "LEP4.csv", row.names = FALSE) 
+```
+
+# pop data
+```{r pd, massage=FALSE,warning=FALSE, cache = TRUE}
+#RegAgriHH
+#AvgHHExp
+
+agri <- read_xlsx("RegAgriHH.xlsx")
+
+data_long <- agri %>%
+  pivot_longer(cols = `2557`:`2565`, names_to = "YEAR", values_to = "Value")
+
+unique(data_long$YEAR)
+
+data_long <- data_long %>%
+  mutate(YEAR = as.numeric(YEAR) - 543)
+
+data_long <- data_long[data_long$YEAR > 2016,]
+
+colnames(data_long)[colnames(data_long) == "Value"] <- "RegAgriHH"
+reg <- data_long 
+#_________________________
+lep5 <- read.csv("LEP5.csv")
+unique(lep5$PROV_T)
+unique(reg$PROV_T)
+
+colnames(lep5)
+colnames(reg)
+
+data <- lep5 %>% 
+  left_join(reg, by = c("YEAR", "PROV_T"))
+
+summary(data)
+
+write.csv(data, file = "LEP6.csv", row.names = FALSE)
+
+#_______________________________________________________________________________
+#AvgHHExp
+exp <- read_xlsx("AvgHHExp.xlsx")
+data_long <- exp %>%
+  pivot_longer(cols = `2560`:`2565`, names_to = "YEAR", values_to = "Value")
+data_long <- data_long %>%
+  mutate(YEAR = as.numeric(YEAR) - 543)
+
+colnames(data_long)[colnames(data_long) == "Value"] <- "AvgHHExp"
+
+dat <- data %>% 
+  left_join(data_long, by = c("YEAR", "PROV_T"))
+
+summary(dat)
+write.csv(dat, file = "LEP7.csv",row.names = FALSE)
+#_______________________________________________________________________________
+income <- read_xlsx("C_avg_income.xlsx")
+
+data_long <- income %>% 
+  pivot_longer(cols = `2017`:`2022`, names_to = "YEAR", values_to = "Avg_incomeHH")
+data_long$YEAR <- as.numeric(data_long$YEAR)
+str(data_long$YEAR)
+str(dat$YEAR)
+dat2 <- dat %>% 
+  left_join(data_long, by = c("YEAR", "PROV_T"))
+
+summary(dat2)
+write.csv(dat2, file = "LEP8.csv", row.names = FALSE)
+#_______________________________________________________________________________
+#Forest_Area(rai)
+fa <- read_xlsx("forest_area.xlsx")
+
+data_long <- fa %>% 
+  pivot_longer(cols = `2560`:`2565`, names_to = "YEAR", values_to = "Forest_Area(rai)")
+data_long <- data_long %>%
+  mutate(YEAR = as.numeric(YEAR) - 543)
+
+dat3 <- dat2 %>% 
+  left_join(data_long, by = c("PROV_T", "YEAR"))
+
+summary(dat3)
+
+dat3[is.na(dat3$`Forest_Area(rai)`),]
+write.csv(dat3, file = "LEP9.csv", row.names = FALSE)
+
+dat <- read.csv("LEP9.csv")
+summary(dat)
+dat
+```
+
