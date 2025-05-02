@@ -1,15 +1,15 @@
 ### Two-Step Forecasting Model for Leptospirosis Incidence in Thailand
-Overview
+### Overview
 This repository contains the implementation of a two-step modeling approach for forecasting the incidence rate of leptospirosis at the district (amphoe) level in Thailand. The model aims to address the challenge of zero-inflated spatial data and incorporates geospatial and socioeconomic variables.
 
-Research Objectives
+### Research Objectives
 Develop an effective two-step forecasting model for highly zero-inflated data.
 
 Apply the model to predict leptospirosis incidence rates across districts in Thailand using spatial and demographic features.
 
 Identify key environmental and socioeconomic factors influencing disease distribution.
 
-Model Structure
+### Model Structure
 The proposed Two-Step Model consists of:
 
 Step 1 - Classification: Identify whether a district has any leptospirosis cases (0 vs. >0).
@@ -18,7 +18,7 @@ Step 2 - Regression: Predict the actual incidence rate (cases per 100,000 popula
 
 The model uses the Extreme Gradient Boosting algorithm (XGBoost) and applies nested cross-validation to tune hyperparameters.
 
-Key Features Used
+### Key Features Used
 Climate data: average rainfall, temperature, humidity
 
 Soil drainage types
@@ -33,7 +33,7 @@ Elevation and slope
 
 Socioeconomic variables: household income, household expenditure, proportion of registered agricultural households
 
-Data Sources
+### Data Sources
 Thailand Meteorological Department (climate)
 
 Land Development Department (soil and land use)
@@ -46,14 +46,14 @@ Department of Provincial Administration (population data)
 
 Satellite data (Landsat, Sentinel)
 
-Tools and Technologies
+### Tools and Technologies
 R: model training and evaluation (packages: xgboost, caret, dplyr)
 
 Python: spatial visualization and plotting (libraries: pandas, geopandas, matplotlib)
 
 QGIS: raster processing, interpolation (IDW), and Zonal Statistics
 
-Performance
+### Performance
 Classification Step:
 
 F1 Score: 0.869
@@ -68,7 +68,7 @@ RMSE: 0.1532
 
 MAE: 0.0553
 
-Key Findings
+### Key Findings
 Most influential predictors:
 
 Classification: slope variance, humidity variance, ratio of agricultural households
@@ -79,14 +79,14 @@ Flood-prone areas, moderate to poor soil drainage, and high humidity are strongl
 
 Agricultural communities with low income are more vulnerable
 
-Limitations
+### Limitations
 Absence of data on rodent populations or personal behaviors
 
 Spatial resolution limited by monthly data aggregation
 
 Under-reporting of district-level case data may exist
 
-Future Recommendations
+### Future Recommendations
 Integrate rodent surveillance and behavioral surveys
 
 Use real-time weather and flood forecasts
