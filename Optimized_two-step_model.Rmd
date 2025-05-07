@@ -26,9 +26,8 @@ lep <- lep %>% select(temp_mean, temp_variance, YEAR, humi_mean, humi_variance,
          somewhat_poor_drainage, Unknown_drainage, poor_drainage, very_poor_drainage,
          poor_to_somewhat_poor_drainage, good_drainage, moderate_drainage,
          RegAgriHH, AvgHHExp, Avg_incomeHH, -Forest_Area.rai., PROV, AMP, MONTH, Population)
-#RegAgriHH
-#Forest_Area.rai.
-forest_dat <- read_xlsx("forest.xlsx")
+
+forest_dat <- read.csv("forest.csv")
 forest_dat <- forest_dat %>% 
   select(-PROV_T)
 lep <- lep %>% 
@@ -58,7 +57,7 @@ lep_zero_AMP <- lep %>% filter(AMP %in% zero_case_districts)
 lep_non_zero_AMP <- lep %>% filter(!(AMP %in% zero_case_districts))
 
 lep <- lep_non_zero_AMP
-
+write.csv(lep, "lepto_dat.csv", row.names = FALSE)
 # Outer K-fold (split by YEAR)
 kfolds_outer <- split(lep, lep$YEAR)
 colnames(lep)
@@ -438,7 +437,7 @@ p1 <- ggplot(df_imp_cl[1:10, ], aes(x = reorder(Feature, Gain), y = Gain, fill =
        x = "Feature",
        y = "Gain") +
   theme_minimal(base_size = 14) +
-  theme(legend.position = "right")
+  theme(legend.position = "none")
 print(p1)
 ggsave("importance_classification.jpg", plot = p1)
 # Regression importance plot
@@ -451,9 +450,10 @@ p2 <- ggplot(df_imp_reg[1:10, ], aes(x = reorder(Feature, Gain), y = Gain, fill 
        x = "Feature",
        y = "Gain") +
   theme_minimal(base_size = 14) +
-  theme(legend.position = "right")
+  theme(legend.position = "none")
 print(p2)
 ggsave("importance_regression.jpg", plot = p2)
+best_params
 ```
 
 
