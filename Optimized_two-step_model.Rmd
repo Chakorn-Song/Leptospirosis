@@ -93,8 +93,25 @@ h <- hist(lep$caseper100k,
 # เพิ่มตัวเลขบนแท่ง
 text(x = h$mids, y = h$counts, labels = h$counts, pos = 3, col = "blue")
 colnames(lep)
+library(writexl)
 
+write_xlsx(lep, path = "lep_temp.xlsx")
+fl <- read.csv("FL.csv")
+fl
+unique(fl$FL_DES)
+summary(lep)
+summarise(lep)
+colnames(lep)
 
+library(psych)
+describe(lep)
+```
+
+```{r}
+lep <- read.csv("LEP9.csv")
+summary(lep$REGION)
+unique(lep$REGION)
+table(lep$REGION)
 ```
 
 # find_best_params
